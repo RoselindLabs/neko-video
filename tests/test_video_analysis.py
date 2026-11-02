@@ -96,11 +96,29 @@ class AnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.transcribe.assert_not_awaited()
 
     async def test_asr_disabled_rejects_before_download_and_both_models(self):
+        self.cfg.asr.enabled = False
         result = await self.service.read(self.key, "a", include_audio=True)
         self.assertFalse(result["success"])
         self.fetcher.assert_not_awaited()
         self.generate.assert_not_awaited()
         self.transcribe.assert_not_awaited()
+
+    async def test_twelve_frames_fit_new_bounded_payload_without_changing_analysis_route(self):
+        self.cfg.analysis.frames = 12
+        self.extractor.return_value = (
+            {"duration_seconds": 12.0, "width": 640, "height": 360, "has_audio_track": False},
+            [i + 0.5 for i in range(12)],
+            [b"j" * (160 * 1024)] * 12,
+        )
+        result = await self.service.read(self.key, "a", include_audio=True)
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(result["sample_positions_seconds"]), 12)
+        self.assertEqual(
+            sum(part["type"] == "image" for part in self.generate.call_args.args[0][0]["content"]),
+            12,
+        )
+        self.assertEqual(result["audio_status"], "no_track")
+        self.transcribe.assert_not_called()
 
     async def test_audio_opt_in_one_asr_and_visual_call_then_cached(self):
         self.cfg.asr.enabled = True

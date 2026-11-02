@@ -18,6 +18,7 @@ from PIL import Image
 from .media import MediaError
 
 MAX_FRAME_BYTES = 180 * 1024
+MAX_FRAMES = 24
 MAX_PIXELS = 16_777_216
 FORMAT = "mov"
 
@@ -146,7 +147,9 @@ def compact(raw):
     raise MediaError("视频帧无效或超过传输上限")
 
 
-async def extract(path, max_seconds=120, count=6):
+async def extract(path, max_seconds=120, count=12):
+    if type(count) is not int or not 1 <= count <= MAX_FRAMES:
+        raise MediaError("采样帧数须为1–24的整数")
     path = Path(path)
     if path.is_symlink() or not path.is_file():
         raise MediaError("视频缓存不可读取")

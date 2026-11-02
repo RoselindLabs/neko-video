@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import re
 from pathlib import Path
 
 import httpx
@@ -20,7 +21,7 @@ from .video_analysis import VideoAnalyzer
 
 def scope_of(kwargs):
     return str(
-        kwargs.get("stream_id") or kwargs.get("session_id") or kwargs.get("chat_id") or ""
+        kwargs.get("session_id") or kwargs.get("stream_id") or kwargs.get("chat_id") or ""
     ).strip()
 
 
@@ -187,60 +188,48 @@ class NekoVideoPlugin(MaiBotPlugin):
         return {"success": False, "content": "未取得有效视频资料，未猜测画面。"}
 
     @Tool(
-        "neko_video_bilibili",
-        description="读取B站摘要或字幕文字，不分析画面。",
+        "neko_video_info",
+        description="读取B站或抖音的平台摘要、字幕等文字资料，不分析画面。",
         timeout_ms=45000,
         parameters=[
             ToolParameterInfo(
                 name="link",
                 param_type=ToolParamType.STRING,
-                description="B站链接、BV/av号或短链",
+                description="B站/抖音分享链接、BV/av号或抖音19位ID",
                 required=True,
             )
         ],
     )
+    async def info(self, link="", **kwargs):
+        del kwargs
+        expected = (
+            "douyin" if isinstance(link, str) and re.fullmatch(r"\d{19}", link.strip()) else None
+        )
+        return await self._summary_tool(link, expected)
+
     async def bilibili(self, link="", **kwargs):
         del kwargs
         return await self._summary_tool(link, "bilibili")
 
-    @Tool(
-        "neko_video_douyin",
-        description="读取抖音文字资料；看图用neko_video_read。",
-        timeout_ms=45000,
-        parameters=[
-            ToolParameterInfo(
-                name="link",
-                param_type=ToolParamType.STRING,
-                description="抖音分享链接或ID",
-                required=True,
-            )
-        ],
-    )
     async def douyin(self, link="", **kwargs):
         del kwargs
         return await self._summary_tool(link, "douyin")
 
     @Tool(
-        "neko_video_read",
-        description="预览抖音图文并取编号；按编号显式分析视频。",
+        "neko_video_open",
+        description="预览抖音媒体或按真实消息ID登记聊天视频/视频附件。",
         timeout_ms=130000,
         parameters=[
             ToolParameterInfo(
                 name="link",
                 param_type=ToolParamType.STRING,
-                description="普通预览填抖音分享文本、链接或19位ID；分析时不填，先取得video media_id",
+                description="抖音分享文本、链接或19位ID；与source_message_id二选一，不接B站原视频或任意网址",
                 required=False,
             ),
             ToolParameterInfo(
-                name="analyze_video",
-                param_type=ToolParamType.BOOLEAN,
-                description="仅用户明确要求理解视频时设true，并配合本聊天video的media_id；最多6帧，不自动重试",
-                required=False,
-            ),
-            ToolParameterInfo(
-                name="media_id",
+                name="source_message_id",
                 param_type=ToolParamType.STRING,
-                description="本聊天视频/实况的media_id（neko_video_read或neko_video_chat返回）；不接受URL/路径",
+                description="当前聊天视频消息或视频文件附件的真实消息ID，不是上下文短编号；与link二选一",
                 required=False,
             ),
             ToolParameterInfo(
@@ -249,20 +238,70 @@ class NekoVideoPlugin(MaiBotPlugin):
                 description="图片起点，从0开始，每次最多4张",
                 required=False,
             ),
+        ],
+    )
+    async def open(self, link="", source_message_id="", image_start=0, **kwargs):
+        if (
+            not isinstance(link, str)
+            or not isinstance(source_message_id, str)
+            or bool(link.strip()) == bool(source_message_id.strip())
+        ):
+            return {
+                "success": False,
+                "content": "抖音链接和当前聊天真实消息ID二选一，不能同时填写或留空",
+            }
+        if any(
+            key in kwargs
+            for key in ("media_id", "analyze_video", "include_audio", "analysis_offset")
+        ):
+            return {
+                "success": False,
+                "content": "open只预览或登记媒体；需要分析时调用neko_video_analyze",
+            }
+        if source_message_id:
+            if type(image_start) is not int or image_start != 0:
+                return {"success": False, "content": "聊天视频取源不接受图片起点"}
+            return await self.chat_video(source_message_id.strip(), **kwargs)
+        return await self.read(link=link, image_start=image_start, **kwargs)
+
+    @Tool(
+        "neko_video_analyze",
+        description="分析本聊天视频编号，默认带音轨；也可续读已有分析结果。",
+        timeout_ms=130000,
+        parameters=[
             ToolParameterInfo(
-                name="include_audio",
-                param_type=ToolParamType.BOOLEAN,
-                description="仅明确要求听音/转写且ASR已启用时设true；分析时取第一音轨，无音轨跳过，不重试",
-                required=False,
+                name="media_id",
+                param_type=ToolParamType.STRING,
+                description="open返回的本聊天视频media_id；不接受URL/路径，不自动重试未知请求",
+                required=True,
             ),
             ToolParameterInfo(
-                name="analysis_offset",
+                name="offset",
                 param_type=ToolParamType.INTEGER,
-                description="分析正文续读偏移，首次0，续读填上次返回的next_analysis_offset；不重新调用模型",
+                description="首次0；续读填上次next_analysis_offset，仅取成功缓存，不重新调用模型",
                 required=False,
             ),
         ],
     )
+    async def analyze(self, media_id="", offset=0, **kwargs):
+        if not self.enabled():
+            return {"success": False, "content": "插件未启用"}
+        if any(
+            key in kwargs
+            for key in (
+                "link",
+                "source_message_id",
+                "include_audio",
+                "analyze_video",
+                "image_start",
+            )
+        ):
+            return {
+                "success": False,
+                "content": "分析只填media_id和可选offset；音轨由插件设置决定，不填其他参数",
+            }
+        return await self.analyzer.read(media_id, scope_of(kwargs), offset, self.config.asr.enabled)
+
     async def read(
         self,
         link="",
@@ -335,24 +374,23 @@ class NekoVideoPlugin(MaiBotPlugin):
         else:
             messages = []
         for message in messages if isinstance(messages, list) else []:
-            if isinstance(message, dict) and str(message.get("session_id") or "") == stream_id:
+            if (
+                isinstance(message, dict)
+                and str(message.get("session_id") or "") == stream_id
+                and str(message.get("message_id") or "") == message_id
+            ):
                 return message
         return None
 
-    @Tool(
-        "neko_video_chat",
-        description="按真实消息ID登记本聊天视频，返回media_id供分析或发送。",
-        timeout_ms=65000,
-        parameters=[
-            ToolParameterInfo(
-                name="source_message_id",
-                param_type=ToolParamType.STRING,
-                description="当前聊天中视频的真实消息ID，不是上下文短编号",
-                required=True,
-            ),
-        ],
-    )
     async def chat_video(self, source_message_id="", **kwargs):
+        task = asyncio.current_task()
+        self.tasks.add(task)
+        try:
+            return await self._chat_video(source_message_id, **kwargs)
+        finally:
+            self.tasks.discard(task)
+
+    async def _chat_video(self, source_message_id="", **kwargs):
         if not self.enabled() or not self.config.media.enabled:
             return {"success": False, "content": "插件或媒体功能未启用"}
         if not isinstance(source_message_id, str):
@@ -380,7 +418,7 @@ class NekoVideoPlugin(MaiBotPlugin):
             "success": True,
             "content": (
                 f"已登记聊天视频「{record['name']}」，media_id={record['media_id']}。"
-                "需要理解内容时用neko_video_read(analyze_video=true, media_id=...)；"
+                "需要理解内容时用neko_video_analyze(media_id=...)，默认按插件设置带音轨；"
                 "需要发送时用neko_video_send。"
             ),
             **record,

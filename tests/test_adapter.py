@@ -43,23 +43,26 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_components_and_description_budget(self):
         components = collect_components(self.plugin)
         tools = [x for x in components if x["type"] == "TOOL"]
-        self.assertEqual(len(tools), 5)
+        self.assertEqual(len(tools), 4)
         self.assertTrue(all(x["name"].startswith("neko_video_") for x in tools))
         descriptions = [x["metadata"].get("description", "") for x in tools]
         self.assertTrue(all(len(x) <= 45 for x in descriptions))
         self.assertLessEqual(sum(map(len, descriptions)), 190)
         by_name = {x["name"]: x["metadata"] for x in tools}
-        self.assertIn("不分析画面", by_name["neko_video_bilibili"]["description"])
-        self.assertIn("抖音", by_name["neko_video_read"]["description"])
-        self.assertIn("按编号显式", by_name["neko_video_read"]["description"])
-        self.assertIn("真实消息ID", by_name["neko_video_chat"]["description"])
+        self.assertEqual(
+            set(by_name),
+            {"neko_video_info", "neko_video_open", "neko_video_analyze", "neko_video_send"},
+        )
+        self.assertIn("不分析画面", by_name["neko_video_info"]["description"])
+        self.assertIn("抖音", by_name["neko_video_open"]["description"])
+        self.assertIn("真实消息ID", by_name["neko_video_open"]["description"])
         # Parameter metadata is also model-visible; a short tool label cannot replace it.
-        read_params = by_name["neko_video_read"]["parameters"]
+        read_params = by_name["neko_video_analyze"]["parameters"]
         if isinstance(read_params, dict):
             props = read_params["properties"]
         else:
             props = {p["name"]: p for p in read_params}
-        chat_params = by_name["neko_video_chat"]["parameters"]
+        chat_params = by_name["neko_video_open"]["parameters"]
         chat_props = (
             chat_params["properties"]
             if isinstance(chat_params, dict)
@@ -67,8 +70,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("当前聊天", chat_props["source_message_id"]["description"])
         self.assertIn("不接受URL/路径", props["media_id"]["description"])
-        self.assertIn("不自动重试", props["analyze_video"]["description"])
-        self.assertIn("ASR已启用", props["include_audio"]["description"])
+        self.assertEqual(set(props), {"media_id", "offset"})
         sender = next(x for x in tools if x["name"] == "neko_video_send")
         self.assertEqual(sender["metadata"]["platforms"], ["qq"])
         manifest = json.loads(
@@ -94,7 +96,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             spec.loader.exec_module(module)
             discovered = module.create_plugin()
             self.assertEqual(
-                len([item for item in collect_components(discovered) if item["type"] == "TOOL"]), 5
+                len([item for item in collect_components(discovered) if item["type"] == "TOOL"]), 4
             )
         finally:
             for name in list(sys.modules):
@@ -151,7 +153,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("model_name", args)
 
     async def test_asr_adapter_uses_existing_host_voice_route_without_credentials(self):
-        self.assertFalse(self.plugin.config.asr.enabled)
+        self.assertTrue(self.plugin.config.asr.enabled)
         self.plugin.ctx.llm = SimpleNamespace(
             transcribe_audio=AsyncMock(return_value={"success": True, "text": "fixture"})
         )
@@ -183,3 +185,44 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             self.plugin.admin("", {"message": {"message_info": {"user_info": {"user_id": "456"}}}})
         )
         self.assertFalse(self.plugin.admin("", {}))
+
+    async def test_unified_info_auto_identifies_platform_and_keeps_auto_injection_separate(self):
+        self.plugin.config.plugin.enabled = True
+        self.plugin._summary_tool = AsyncMock(return_value={"success": True})
+        await self.plugin.info("BV1234567890")
+        self.plugin._summary_tool.assert_awaited_with("BV1234567890", None)
+        await self.plugin.info("1234567890123456789")
+        self.plugin._summary_tool.assert_awaited_with("1234567890123456789", "douyin")
+
+    async def test_open_source_choices_are_exclusive_and_never_start_analysis(self):
+        self.plugin.read = AsyncMock(return_value={"success": True})
+        self.plugin.chat_video = AsyncMock(return_value={"success": True})
+        self.plugin.analyzer.read = AsyncMock()
+        for fields in (
+            {},
+            {"link": "x", "source_message_id": "1"},
+            {"source_message_id": "1", "image_start": 1},
+            {"link": "x", "include_audio": True},
+        ):
+            self.assertFalse((await self.plugin.open(**fields))["success"])
+        self.plugin.read.assert_not_called()
+        self.plugin.chat_video.assert_not_called()
+        await self.plugin.open(link="https://v.douyin.com/test", image_start=4, stream_id="a")
+        self.plugin.read.assert_awaited_once_with(
+            link="https://v.douyin.com/test", image_start=4, stream_id="a"
+        )
+        await self.plugin.open(source_message_id="123", session_id="a")
+        self.plugin.chat_video.assert_awaited_once_with("123", session_id="a")
+        self.plugin.analyzer.read.assert_not_called()
+
+    async def test_analyze_defaults_audio_from_admin_policy_without_model_parameter(self):
+        self.plugin.config.plugin.enabled = True
+        self.assertEqual(self.plugin.config.analysis.frames, 12)
+        self.plugin.config.analysis.frames = 24
+        self.plugin.analyzer.read = AsyncMock(return_value={"success": True})
+        await self.plugin.analyze("a" * 32, session_id="scope", stream_id="other")
+        self.plugin.analyzer.read.assert_awaited_once_with("a" * 32, "scope", 0, True)
+        self.plugin.config.asr.enabled = False
+        await self.plugin.analyze("a" * 32, offset=6000, session_id="scope")
+        self.plugin.analyzer.read.assert_awaited_with("a" * 32, "scope", 6000, False)
+        self.assertFalse((await self.plugin.analyze("a" * 32, include_audio=False))["success"])

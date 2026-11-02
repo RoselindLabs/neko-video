@@ -15,7 +15,7 @@ import httpx
 
 from .analysis_store import AnalysisStore
 from .media import MediaError
-from .video_frames import extract
+from .video_frames import extract, MAX_FRAME_BYTES, MAX_FRAMES
 from .video_audio import extract_audio
 from .video_spool import VideoSpool
 
@@ -224,7 +224,11 @@ class VideoAnalyzer:
                         or not 1 <= len(frames) <= self.settings.analysis.frames
                     ):
                         raise MediaError("视频采样未完整完成，未提交模型")
-                    if sum(map(len, frames)) > 6 * 180 * 1024:
+                    if (
+                        len(frames) > MAX_FRAMES
+                        or any(len(frame) > MAX_FRAME_BYTES for frame in frames)
+                        or sum(map(len, frames)) > MAX_FRAMES * MAX_FRAME_BYTES
+                    ):
                         raise MediaError("视频帧输入超过预算，未提交模型")
                     parts = [
                         {

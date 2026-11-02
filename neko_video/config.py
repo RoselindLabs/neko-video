@@ -62,7 +62,11 @@ class AnalysisSection(PluginConfigBase):
         default=120, ge=1, le=120, description="分析视频最大时长秒数，超限不截取冒充全文"
     )
     frames: int = Field(
-        default=6, ge=1, le=6, description="均匀采样最多帧数，仅离散采样，不等于逐秒观看"
+        default=12,
+        ge=1,
+        le=24,
+        description="均匀采样最多帧数，默认12、可设1–24；短片可少于设定值，不等于逐秒观看",
+        json_schema_extra={"label": "视频采样帧数（1–24）"},
     )
     timeout_seconds: int = Field(
         default=90, ge=10, le=120, description="整轮期限含排队、下载、抽帧及视觉调用"
@@ -73,10 +77,10 @@ class AnalysisSection(PluginConfigBase):
 
 
 class ASRSection(PluginConfigBase):
-    """Opt-in audio transcription through the host's existing voice task."""
+    """Admin audio policy for explicitly requested video analysis."""
 
     enabled: bool = Field(
-        default=False, description="允许显式视频音轨转写；另有一次voice调用，默认关闭"
+        default=True, description="分析视频时默认转写第一音轨；无音轨不调用voice，关闭则只分析画面"
     )
     timeout_seconds: int = Field(
         default=35, ge=5, le=60, description="音轨转写等待上限，超时未知不重试；仍受分析总期限限制"

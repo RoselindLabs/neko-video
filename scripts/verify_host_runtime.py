@@ -94,7 +94,7 @@ async def verify_bilibili_subtitle_tool(runner, meta):
                 message_type="request",
                 method="plugin.invoke_tool",
                 plugin_id="neko.video",
-                payload={"component_name": "neko_video_bilibili", "args": {"link": "BV1234567890"}},
+                payload={"component_name": "neko_video_info", "args": {"link": "BV1234567890"}},
             )
         )
     assert response.error is None, response.error
@@ -143,7 +143,7 @@ async def verify(host_source, report):
         # Keep config minimal-but-valid to exercise genuine host normalization
         # and current config_version handling, not only Pydantic model import.
         (target / "config.toml").write_text(
-            '[plugin]\nenabled=true\nconfig_version="1.0.0"\n[media]\nvideo_max_mib=0\n',
+            '[plugin]\nenabled=true\nconfig_version="1.0.0"\n[media]\nvideo_max_mib=0\n[asr]\nenabled=false\n',
             encoding="utf-8",
         )
         runner = PluginRunner(
@@ -241,7 +241,7 @@ async def verify(host_source, report):
             tools = [
                 item for item in registration["components"] if item["component_type"] == "TOOL"
             ]
-            assert len(tools) == 5
+            assert len(tools) == 4
             assert "llm.generate" in registration["capabilities_required"]
             assert "llm.transcribe_audio" in registration["capabilities_required"]
             assert {"message.get_by_id", "api.call"} <= set(registration["capabilities_required"])
@@ -266,7 +266,7 @@ async def verify(host_source, report):
             )
             assert not previous.config_error
             assert previous.normalized_config["analysis"]["enabled"] is True
-            assert previous.normalized_config["asr"]["enabled"] is False
+            assert previous.normalized_config["asr"]["enabled"] is True
             assert previous.normalized_config["media"]["video_max_mib"] == 0
             invocation = Envelope(
                 request_id=1,
@@ -274,7 +274,7 @@ async def verify(host_source, report):
                 method="plugin.invoke_tool",
                 plugin_id="neko.video",
                 payload={
-                    "component_name": "neko_video_chat",
+                    "component_name": "neko_video_open",
                     "args": {"source_message_id": "123456", "session_id": "synthetic-group"},
                 },
             )

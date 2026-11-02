@@ -33,7 +33,7 @@ async def main():
                 "-i",
                 "testsrc2=size=320x240:rate=4",
                 "-t",
-                "3",
+                "12",
                 "-c:v",
                 "mpeg4",
                 "-threads",
@@ -45,11 +45,11 @@ async def main():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
-        info, positions, images = await extract(path, 120, 6)
-        assert info["duration_seconds"] == 3
-        assert len(images) == len(positions) == 3
+        info, positions, images = await extract(path, 120, 12)
+        assert info["duration_seconds"] == 12
+        assert len(images) == len(positions) == 12
         assert all(image.startswith(b"\xff\xd8") and len(image) <= 180 * 1024 for image in images)
-        assert all(0 < value < 3 for value in positions)
+        assert all(0 < value < 12 for value in positions)
         assert info["has_audio_track"] is False
         audible = Path(directory) / "audible.mp4"
         subprocess.run(

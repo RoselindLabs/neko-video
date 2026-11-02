@@ -1,6 +1,7 @@
 """Chat-native video registration via get_msg; adapter API mocked, no network."""
 
 import unittest
+import copy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -265,3 +266,155 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
         asset = self.plugin.media.assets.peek("stream-a", result["media_id"])
         self.assertEqual(asset.urls, ("https://cdn.example.com/v.mp4",))
         self.assertEqual(asset.digest, "")
+
+    async def test_real_sdk_video_file_message_uses_scoped_url_and_default_audio_analysis(self):
+        self.enable()
+        current = message(text="[文件] upload.mp4，大小: 42，链接: https://ignored.example/file")
+        calls = []
+
+        async def rpc(method, plugin_id, payload):
+            self.assertEqual((method, plugin_id), ("cap.call", "neko.video"))
+            if payload["capability"] == "message.get_by_id":
+                self.assertEqual(payload["args"]["chat_id"], "stream-a")
+                return {"success": True, "message": current}
+            args = payload["args"]
+            self.assertEqual(args["api_name"], "adapter.napcat.action.call_data")
+            action = args["args"]["action_name"]
+            calls.append(action)
+            data = {
+                "get_msg": {
+                    "message_id": current["message_id"],
+                    "group_id": "123",
+                    "message": [
+                        {
+                            "type": "file",
+                            "data": {"name": "upload.mp4", "file_id": "file-1", "busid": 2},
+                        }
+                    ],
+                },
+                "get_login_info": {"user_id": "789"},
+                "get_group_file_url": {"url": "https://ftn.qq.com/actual-file"},
+            }[action]
+            return {"success": True, "result": data}
+
+        self.plugin.ctx = PluginContext("neko.video", rpc_call=rpc)
+        self.plugin.chat_media.context = self.plugin.ctx
+        self.plugin.analyzer.read = AsyncMock(return_value={"success": True})
+        result = await self.plugin.open(
+            source_message_id=current["message_id"], session_id="stream-a"
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["source_kind"], "chat_file")
+        self.assertEqual(calls, ["get_msg", "get_login_info", "get_group_file_url"])
+        self.assertEqual(
+            self.plugin.media.assets.peek("stream-a", result["media_id"]).urls,
+            ("https://ftn.qq.com/actual-file",),
+        )
+        self.plugin.analyzer.read.assert_not_called()
+        await self.plugin.analyze(result["media_id"], session_id="stream-a")
+        self.plugin.analyzer.read.assert_awaited_once_with(result["media_id"], "stream-a", 0, True)
+
+
+class VideoFileTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.assets = MediaAssets()
+        self.ctx = SimpleNamespace(api=SimpleNamespace(call=AsyncMock()))
+        self.service = ChatMediaService(self.ctx, object(), self.assets)
+        self.current = message(text="[文件] clip.mp4，大小: 42")
+        self.detail = {
+            "message_id": self.current["message_id"],
+            "group_id": "123",
+            "message": [{"type": "file", "data": {"name": "clip.mp4", "file_id": "F1"}}],
+        }
+
+    async def test_group_and_private_files_use_their_own_scoped_actions(self):
+        for group in (True, False):
+            current, detail = copy.deepcopy(self.current), copy.deepcopy(self.detail)
+            if not group:
+                current["message_info"]["group_info"] = None
+                detail.pop("group_id")
+                detail["user_id"] = "10001"
+            self.ctx.api.call.reset_mock()
+            self.ctx.api.call.side_effect = [
+                detail,
+                {"user_id": "789"},
+                {"url": "https://ftn.qq.com/file"},
+            ]
+            record = await self.service.register(current, "stream-a")
+            calls = self.ctx.api.call.await_args_list
+            self.assertEqual(
+                calls[-1].kwargs["action_name"],
+                "get_group_file_url" if group else "get_private_file_url",
+            )
+            self.assertEqual(
+                calls[-1].kwargs["params"]["group_id" if group else "user_id"],
+                "123" if group else "10001",
+            )
+            self.assertEqual(self.assets.peek("stream-a", record["media_id"]).kind, "video")
+
+    async def test_group_upload_notice_uses_host_bound_file_metadata_not_get_msg(self):
+        self.current["message_id"] = "upload-notice-1"
+        self.current["message_info"]["additional_config"] = {
+            "napcat_notice_type": "group_upload",
+            "napcat_notice_payload": {
+                "group_id": "123",
+                "self_id": "789",
+                "file": {"id": "F1", "name": "upload.MOV", "busid": 2},
+            },
+        }
+        self.ctx.api.call.side_effect = [{"user_id": "789"}, {"url": "https://ftn.qq.com/file"}]
+        result = await self.service.register(self.current, "stream-a")
+        self.assertEqual(result["name"], "upload.MOV")
+        self.assertEqual(
+            [c.kwargs["action_name"] for c in self.ctx.api.call.await_args_list],
+            ["get_login_info", "get_group_file_url"],
+        )
+        self.current["message_info"]["additional_config"]["napcat_notice_payload"]["group_id"] = (
+            "999"
+        )
+        self.ctx.api.call.reset_mock()
+        with self.assertRaises(ChatMediaError):
+            await self.service.register(self.current, "stream-a")
+        self.ctx.api.call.assert_not_called()
+
+    async def test_foreign_chat_message_or_account_cannot_supply_file_url(self):
+        for mutation in ("scope", "message", "group", "account"):
+            current, detail = copy.deepcopy(self.current), copy.deepcopy(self.detail)
+            login = {"user_id": "789"}
+            if mutation == "scope":
+                current["session_id"] = "other"
+            if mutation == "message":
+                detail["message_id"] = "other"
+            if mutation == "group":
+                detail["group_id"] = "other"
+            if mutation == "account":
+                login["user_id"] = "other"
+            self.ctx.api.call.reset_mock()
+            self.ctx.api.call.side_effect = [detail, login]
+            with self.assertRaises(ChatMediaError):
+                await self.service.register(current, "stream-a")
+            self.assertNotIn(
+                "get_group_file_url",
+                [c.kwargs["action_name"] for c in self.ctx.api.call.await_args_list],
+            )
+
+    async def test_non_video_ambiguous_forged_or_local_path_attachments_are_rejected(self):
+        for data in (
+            {"name": "notes.pdf", "file_id": "F1"},
+            {"name": "clip.mp4.exe", "file_id": "F1"},
+            {"name": "../../clip.mp4", "file_id": "F1"},
+            {"name": "clip.mp4", "file_id": "../escape"},
+        ):
+            detail = copy.deepcopy(self.detail)
+            detail["message"][0]["data"] = data
+            self.ctx.api.call.side_effect = [detail, {"user_id": "789"}]
+            with self.assertRaises(ChatMediaError):
+                await self.service.register(self.current, "stream-a")
+        self.ctx.api.call.side_effect = [
+            self.detail,
+            {"user_id": "789"},
+            {"url": "/tmp/private.mp4"},
+        ]
+        with self.assertRaises(ChatMediaError):
+            await self.service.register(self.current, "stream-a")
+        self.assertFalse(self.assets.items)

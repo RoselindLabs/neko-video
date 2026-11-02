@@ -26,7 +26,9 @@ entry = importlib.import_module(package.__name__ + '.plugin')
 plugin = entry.create_plugin()
 assert not importlib.import_module('packed_neko_video.neko_video.config').Config().plugin.enabled
 tools = [item for item in collect_components(plugin) if item['type'] == 'TOOL']
-assert len(tools) == 5
+assert {item['name'] for item in tools} == {'neko_video_info', 'neko_video_open', 'neko_video_analyze', 'neko_video_send'}
+analysis = next(item['metadata']['parameters'] for item in tools if item['name'] == 'neko_video_analyze')
+assert {p['name'] for p in analysis} == {'media_id', 'offset'}
 assert all(item['name'].startswith('neko_video_') for item in tools)
 # Also exercise standalone discovery and eagerly import every packaged module.
 standalone = importlib.import_module('plugin')
@@ -38,7 +40,7 @@ for name, module in list(sys.modules.items()):
     if name == 'plugin' or name.startswith(('neko_video', 'packed_neko_video.')):
         file = getattr(module, '__file__', None)
         assert file and pathlib.Path(file).resolve().is_relative_to(root), (name, file)
-print('Packed SDK discovery/import OK: 5 tools; all plugin modules from ZIP')
+print('Packed SDK discovery/import OK: 4 tools; all plugin modules from ZIP')
 """
 
 
