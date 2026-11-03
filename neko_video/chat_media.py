@@ -59,6 +59,18 @@ def file_identity(data):
     return value
 
 
+def attachment_hash(data):
+    """Opaque private-file locator metadata; never returned with media handles."""
+    value = data.get("file_hash", "")
+    if (
+        not isinstance(value, str)
+        or len(value) > 1024
+        or any(ord(character) < 33 for character in value)
+    ):
+        raise ChatMediaError("视频附件校验元数据无效")
+    return value
+
+
 class ChatMediaError(ValueError):
     """Refusal with a user-facing reason; never retried automatically."""
 
@@ -131,6 +143,25 @@ class ChatMediaService:
                 != user
             ):
                 raise ChatMediaError("QQ文件来自其他私聊")
+            if not group:
+                actual_hash = attachment_hash(found[0][1])
+                # Host file components currently omit hashes. If a structured
+                # host source does carry one, a conflicting raw message cannot
+                # silently replace that already-bound attachment identity.
+                host_segments = message.get("raw_message") or []
+                if not isinstance(host_segments, list) or len(host_segments) > 128:
+                    raise ChatMediaError("宿主文件消息段无效或超限")
+                actual_id = found[0][1].get("file_id") or found[0][1].get("id")
+                for segment in host_segments:
+                    if not isinstance(segment, dict) or segment.get("type") != "file":
+                        continue
+                    expected = segment.get("data")
+                    if not isinstance(expected, dict):
+                        continue
+                    if actual_id and (expected.get("file_id") or expected.get("id")) == actual_id:
+                        expected_hash = attachment_hash(expected)
+                        if expected_hash and expected_hash != actual_hash:
+                            raise ChatMediaError("原私聊视频附件校验来源发生变化")
         return found[0]
 
     async def _file_url(self, data, message):
@@ -144,6 +175,7 @@ class ChatMediaService:
             or (not group and not user.isdecimal())
         ):
             raise ChatMediaError("视频文件缺少当前QQ账号或聊天归属")
+        file_hash = attachment_hash(data) if not group else ""
         login = await self._action_data("get_login_info", {})
         if str(login.get("user_id") or "") != account:
             raise ChatMediaError("QQ文件接口登录账号与消息账号不符")
@@ -156,11 +188,17 @@ class ChatMediaService:
             if type(busid) is not int or not 0 <= busid <= 2**31 - 1:
                 raise ChatMediaError("群视频文件busid无效")
             result = await self._action_data(
-                "get_group_file_url", {"group_id": group, "file_id": ident, "busid": busid}
+                "get_group_file_url",
+                {"group_id": group, "file_id": ident, **({"busid": busid} if busid else {})},
             )
         else:
             result = await self._action_data(
-                "get_private_file_url", {"user_id": user, "file_id": ident}
+                "get_private_file_url",
+                {
+                    "user_id": user,
+                    "file_id": ident,
+                    **({"file_hash": file_hash} if file_hash else {}),
+                },
             )
         if url := resource_url(result.get("url")):
             return url

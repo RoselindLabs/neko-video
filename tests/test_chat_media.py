@@ -2,6 +2,7 @@
 
 import unittest
 import copy
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -417,4 +418,163 @@ class VideoFileTests(unittest.IsolatedAsyncioTestCase):
         ]
         with self.assertRaises(ChatMediaError):
             await self.service.register(self.current, "stream-a")
+        self.assertFalse(self.assets.items)
+
+
+class SnowLumaFileContractTests(unittest.IsolatedAsyncioTestCase):
+    """Actual SDK capability envelopes, only the raw RPC is synthetic."""
+
+    def setup_source(self, *, group=True, data=None, host_data=None):
+        self.current = message(text="[文件] clip.mp4，大小: 42", group="123" if group else "")
+        if host_data is not None:
+            self.current["raw_message"] = [{"type": "file", "data": host_data}]
+        self.data = {"name": "clip.mp4", "file_id": "SYNTHETIC_FILE", **(data or {})}
+        self.detail = {
+            "message_id": self.current["message_id"],
+            "message_type": "group" if group else "private",
+            "message": [{"type": "file", "data": self.data}],
+            **({"group_id": "123"} if group else {"sender": {"user_id": "10001"}}),
+        }
+        self.calls = []
+        self.assets = MediaAssets()
+
+        async def rpc(method, plugin_id, payload):
+            self.assertEqual((method, plugin_id), ("cap.call", "neko.video"))
+            self.assertEqual(payload["capability"], "api.call")
+            args = payload["args"]
+            self.assertEqual(args["api_name"], "adapter.napcat.action.call_data")
+            action, params = args["args"]["action_name"], args["args"]["params"]
+            self.calls.append((action, copy.deepcopy(params)))
+            result = {
+                "get_msg": self.detail,
+                "get_login_info": {"user_id": "789"},
+                "get_group_file_url": {"url": "https://example.invalid/fresh"},
+                "get_private_file_url": {"url": "https://example.invalid/fresh"},
+            }[action]
+            return {"success": True, "result": result}
+
+        self.ctx = PluginContext("neko.video", rpc_call=rpc)
+        self.service = ChatMediaService(self.ctx, object(), self.assets)
+
+    async def test_missing_zero_and_valid_group_busid_preserve_uuid_and_real_value(self):
+        ident = "/12345678-1234-5678-9abc-1234567890ab"
+        for busid in (None, 0, 102):
+            with self.subTest(busid=busid):
+                self.setup_source(
+                    data={"file_id": ident, **({"busid": busid} if busid is not None else {})}
+                )
+                result = await self.service.register(self.current, "stream-a")
+                self.assertEqual(
+                    self.calls[-1],
+                    (
+                        "get_group_file_url",
+                        {
+                            "group_id": "123",
+                            "file_id": ident,
+                            **({"busid": busid} if busid else {}),
+                        },
+                    ),
+                )
+                self.assertEqual(self.assets.peek("stream-a", result["media_id"]).digest, "")
+
+    async def test_private_hash_present_missing_and_bounded_never_becomes_asset_digest(self):
+        for file_hash in (None, "", "SYNTHETIC_OPAQUE_HASH", "x" * 1024):
+            with self.subTest(hash_present=bool(file_hash)):
+                self.setup_source(
+                    group=False, data=({"file_hash": file_hash} if file_hash is not None else {})
+                )
+                result = await self.service.register(self.current, "stream-a")
+                self.assertEqual(
+                    self.calls[-1],
+                    (
+                        "get_private_file_url",
+                        {
+                            "user_id": "10001",
+                            "file_id": "SYNTHETIC_FILE",
+                            **({"file_hash": file_hash} if file_hash else {}),
+                        },
+                    ),
+                )
+                asset = self.assets.peek("stream-a", result["media_id"])
+                self.assertEqual(asset.digest, "")
+                self.assertNotIn("file_hash", str(result))
+                self.assertNotIn("SYNTHETIC_OPAQUE_HASH", str(result) + repr(asset))
+
+    async def test_malformed_private_hash_refuses_even_with_direct_url_without_echo(self):
+        for file_hash in (
+            None,
+            True,
+            False,
+            42,
+            [],
+            {},
+            "x" * 1025,
+            "bad hash",
+            "bad\nhash",
+            "\x00",
+        ):
+            with self.subTest(hash_type=type(file_hash).__name__):
+                self.setup_source(
+                    group=False,
+                    data={"file_hash": file_hash, "url": "https://example.invalid/file"},
+                )
+                with self.assertRaisesRegex(ChatMediaError, "校验元数据无效"):
+                    await self.service.register(self.current, "stream-a")
+                self.assertEqual([name for name, _ in self.calls], ["get_msg"])
+                self.assertFalse(self.assets.items)
+
+    async def test_bound_host_hash_conflict_or_missing_raw_hash_refuses_without_url_action(self):
+        for raw_hash in ("changed-hash", ""):
+            self.setup_source(
+                group=False,
+                data={"file_hash": raw_hash},
+                host_data={
+                    "name": "clip.mp4",
+                    "file_id": "SYNTHETIC_FILE",
+                    "file_hash": "original-hash",
+                },
+            )
+            with self.assertRaisesRegex(ChatMediaError, "校验来源发生变化"):
+                await self.service.register(self.current, "stream-a")
+            self.assertEqual([name for name, _ in self.calls], ["get_msg"])
+            self.assertFalse(self.assets.items)
+        self.setup_source(
+            group=False,
+            data={"file_hash": "same-hash"},
+            host_data={"name": "clip.mp4", "file_id": "SYNTHETIC_FILE", "file_hash": "same-hash"},
+        )
+        self.assertEqual(
+            (await self.service.register(self.current, "stream-a"))["source_kind"], "chat_file"
+        )
+
+    async def test_raw_private_identity_mismatch_never_forwards_hash(self):
+        for field, value in (
+            ("message_id", "other"),
+            ("sender", {"user_id": "other"}),
+            ("group_id", "123"),
+        ):
+            self.setup_source(group=False, data={"file_hash": "SYNTHETIC_HASH"})
+            self.detail[field] = value
+            with self.assertRaises(ChatMediaError):
+                await self.service.register(self.current, "stream-a")
+            self.assertEqual([name for name, _ in self.calls], ["get_msg"])
+            self.assertFalse(self.assets.items)
+
+    async def test_cancel_pending_private_resolution_does_not_register_handle(self):
+        self.setup_source(group=False, data={"file_hash": "SYNTHETIC_HASH"})
+        original = self.ctx._rpc_call
+        entered = asyncio.Event()
+
+        async def rpc(method, plugin_id, payload):
+            if payload["args"]["args"]["action_name"] == "get_private_file_url":
+                entered.set()
+                await asyncio.Event().wait()
+            return await original(method, plugin_id, payload)
+
+        self.ctx._rpc_call = rpc
+        task = asyncio.create_task(self.service.register(self.current, "stream-a"))
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
         self.assertFalse(self.assets.items)
