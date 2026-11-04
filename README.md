@@ -9,7 +9,7 @@
 2026-10-25维护部署1.4.5后，用户确认聊天视频功能可用；这不是所有来源、音轨质量和转发结果的全面验收。
 先前持续“找不到消息”已证实为SDK解包层级误用，不是已证实的Focus错位；无需为此迁移宿主或更换模型。
 
-[下载安装包](https://github.com/znzsofficial/neko-video/releases/latest) · [安全与隐私](SECURITY.md) · [更新记录](CHANGELOG.md)
+[下载安装包](https://github.com/RoselindLabs/neko-video/releases/latest) · [安全与隐私](SECURITY.md) · [更新记录](CHANGELOG.md)
 
 ## 使用起来
 
@@ -44,7 +44,7 @@
 
 要求 **MaiBot ≥1.3.9、SDK ≥2.12、Python ≥3.12**。
 
-1. 从[Release](https://github.com/znzsofficial/neko-video/releases/latest)下载ZIP，按同页`checksums.txt`核对SHA256。
+1. 从[Release](https://github.com/RoselindLabs/neko-video/releases/latest)下载ZIP，按同页`checksums.txt`核对SHA256。
 2. 解压到`plugins/neko-video/`，确保`plugin.py`、`_manifest.json`和`neko_video/`在同一插件根目录；由宿主安装manifest声明的依赖。
 3. 在WebUI检查解析范围、凭据及管理员名单，然后启用。首次安装**默认关闭**，不是安装后自动开始解析。
 4. 需要图文看图时，开启`parse.enable_douyin`和`media.enabled`，并确认Planner支持视觉。
