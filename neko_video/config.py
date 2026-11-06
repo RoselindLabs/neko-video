@@ -12,8 +12,12 @@ class ParseSection(PluginConfigBase):
     enable_ai_summary: bool = Field(
         default=True, description="读取平台AI总结；B站临时不可用时回退字幕，不保证所有视频可用"
     )
-    enable_in_group: bool = Field(default=True, description="群聊分享自动附加文字资料")
-    enable_in_private: bool = Field(default=True, description="私聊分享自动附加文字资料")
+    enable_in_group: bool = Field(
+        default=True, description="群聊分享自动提供请求前临时文字参考，不改原消息"
+    )
+    enable_in_private: bool = Field(
+        default=True, description="私聊分享自动提供请求前临时文字参考，不改原消息"
+    )
     cache_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
     enable_douyin: bool = Field(default=True)
 

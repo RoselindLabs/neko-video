@@ -17,6 +17,7 @@ from .official import OfficialVideoService
 from .presentation import render
 from .transport import UA
 from .video_analysis import VideoAnalyzer
+from .context import VideoContext
 
 
 def scope_of(kwargs):
@@ -53,6 +54,7 @@ class NekoVideoPlugin(MaiBotPlugin):
         self.login_start = asyncio.Lock()
         self.ready = False
         self.analyzer = None
+        self.references = VideoContext()
 
     async def on_load(self):
         async with self.lifecycle:
@@ -77,6 +79,7 @@ class NekoVideoPlugin(MaiBotPlugin):
 
     async def _close(self):
         self.ready = False
+        self.references.clear()
         if self.analyzer is not None:
             await self.analyzer.close()
         if self.media is not None:
@@ -166,15 +169,50 @@ class NekoVideoPlugin(MaiBotPlugin):
             return {"action": "continue"}
         if not info:
             return {"action": "continue"}
-        block = "[Neko Video]\n" + render(info, injected=True)
-        updated = dict(message)
-        updated["processed_plain_text"] = (text + "\n" + block).strip()
-        if isinstance(message.get("raw_message"), list):
-            updated["raw_message"] = [
-                *message["raw_message"],
-                {"type": "text", "data": "\n" + block},
-            ]
-        return {"action": "continue", "modified_kwargs": {"message": updated}}
+        if self.enabled():
+            self.references.record(message, render(info, injected=True), info["platform"])
+        return {"action": "continue"}
+
+    def _reference_context(self, **kwargs):
+        if not self.enabled():
+            self.references.clear()
+        items = self.references.inject(
+            kwargs.get("items"),
+            self.config.parse,
+            session_id=kwargs.get("session_id", ""),
+            tool_definitions=kwargs.get("tool_definitions"),
+            item_schema_version=kwargs.get("item_schema_version"),
+            reply_message_id=kwargs.get("reply_message_id", ""),
+        )
+        return (
+            {"action": "continue", "modified_kwargs": {**kwargs, "items": items}}
+            if items is not None
+            else {"action": "continue"}
+        )
+
+    @HookHandler(
+        "maisaka.planner.before_request",
+        name="neko_video_reference_planner",
+        description="附加来源绑定的视频临时参考",
+        mode=HookMode.BLOCKING,
+        order=HookOrder.NORMAL,
+        timeout_ms=2000,
+        error_policy=ErrorPolicy.SKIP,
+    )
+    async def planner_reference(self, **kwargs):
+        return self._reference_context(**kwargs)
+
+    @HookHandler(
+        "maisaka.replyer.before_model_request",
+        name="neko_video_reference_replyer",
+        description="附加来源绑定的视频临时参考",
+        mode=HookMode.BLOCKING,
+        order=HookOrder.NORMAL,
+        timeout_ms=2000,
+        error_policy=ErrorPolicy.SKIP,
+    )
+    async def replyer_reference(self, **kwargs):
+        return self._reference_context(**kwargs)
 
     async def _summary_tool(self, link, expected):
         if not self.enabled():
@@ -278,7 +316,7 @@ class NekoVideoPlugin(MaiBotPlugin):
             ToolParameterInfo(
                 name="offset",
                 param_type=ToolParamType.INTEGER,
-                description="首次0；续读填上次next_analysis_offset，仅取成功缓存，不重新调用模型",
+                description="首次0；续读填正文提示的offset或next_analysis_offset，仅取成功缓存，不重新调用模型",
                 required=False,
             ),
         ],
@@ -433,7 +471,7 @@ class NekoVideoPlugin(MaiBotPlugin):
             ToolParameterInfo(
                 name="media_id",
                 param_type=ToolParamType.STRING,
-                description="读取结果的media_id",
+                description="open返回的本聊天media_id；投递未知时禁止重新open、换编号或等待后重发",
                 required=True,
             )
         ],

@@ -529,7 +529,8 @@ class AnalysisTests(unittest.IsolatedAsyncioTestCase):
         first = await self.service.read(self.key, "a")
         tail = await self.service.read(self.key, "a", first["next_analysis_offset"])
         self.assertTrue(tail["cache_hit"])
-        self.assertTrue(tail["content"].endswith("tail"))
+        self.assertIn("tail", tail["content"])
+        self.assertIn("已到缓存正文末尾", tail["content"])
         self.assertIsNone(tail["next_analysis_offset"])
         self.assertNotIn("_analysis_text", first)
         self.generate.assert_awaited_once()
@@ -577,8 +578,8 @@ class PersistentAdmissionTests(unittest.TestCase):
         key = hashlib.sha256(b"scope-content-options").hexdigest()
         self.store.admit(key)
         self.now += 3601
-        self.assertIsNone(self.store.get(key))
-        self.assertTrue(self.store.admit(key))
+        self.assertEqual(self.store.get(key), {"state": "unknown"})
+        self.assertFalse(self.store.admit(key))
         self.assertNotIn(b"https://", self.store.path.read_bytes())
 
     def test_corrupt_database_preserved_not_replaced(self):
@@ -587,7 +588,7 @@ class PersistentAdmissionTests(unittest.TestCase):
             AnalysisStore(self.directory.name)
         self.assertEqual(self.store.path.read_bytes(), b"corrupt db")
 
-    def test_config_keys_share_atomic_unknown_identity_and_expire_without_refresh(self):
+    def test_config_keys_share_atomic_unknown_identity_without_expiry(self):
         self.assertTrue(self.store.admit("config-a", "chat-content"))
         self.now += 100
         other = self.open_store()
@@ -596,8 +597,8 @@ class PersistentAdmissionTests(unittest.TestCase):
         self.assertTrue(other.admit("different-chat", "chat-b-content"))
         self.assertTrue(other.admit("different-content", "chat-content-b"))
         self.now += 3501
-        self.assertIsNone(other.get("config-b", "chat-content"))
-        self.assertTrue(other.admit("config-b", "chat-content"))
+        self.assertEqual(other.get("config-b", "chat-content"), {"state": "unknown"})
+        self.assertFalse(other.admit("config-b", "chat-content"))
 
     def test_unknown_takes_precedence_over_completed_config(self):
         self.assertTrue(self.store.admit("a", "same"))
@@ -620,7 +621,7 @@ class PersistentAdmissionTests(unittest.TestCase):
             ]
             self.assertEqual(sorted(job.result(timeout=10) for job in jobs), [False, True])
 
-    def test_old_schema_unknown_is_preserved_as_expiring_barrier(self):
+    def test_old_schema_unknown_is_preserved_as_permanent_barrier(self):
         with closing(sqlite3.connect(self.store.path)) as con, con:
             con.execute("DROP TABLE analysis")
             con.execute(
@@ -634,7 +635,7 @@ class PersistentAdmissionTests(unittest.TestCase):
         self.assertFalse(upgraded.admit("new-config", "new-identity"))
         self.assertEqual(upgraded.get("new-config", "new-identity"), {"state": "unknown"})
         self.now += 3601
-        self.assertTrue(upgraded.admit("new-config", "new-identity"))
+        self.assertFalse(upgraded.admit("new-config", "new-identity"))
 
     def test_old_schema_complete_cache_survives_upgrade(self):
         with closing(sqlite3.connect(self.store.path)) as con, con:

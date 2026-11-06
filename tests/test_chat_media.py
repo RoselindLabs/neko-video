@@ -31,7 +31,12 @@ def get_msg_response(url="", file_id="VID1", name="4b95.mp4"):
     data = {"file": name, "file_id": file_id, "file_size": 1403651}
     if url:
         data["url"] = url
-    return {"message_id": "1251563450", "message": [{"type": "video", "data": data}]}
+    return {
+        "message_id": "1251563450",
+        "group_id": "123",
+        "user_id": "789",
+        "message": [{"type": "video", "data": data}],
+    }
 
 
 class NameExtraction(unittest.TestCase):
@@ -56,7 +61,7 @@ class RegisterTests(unittest.IsolatedAsyncioTestCase):
     async def test_segment_url_registers_directly(self):
         self.ctx.api.call.return_value = get_msg_response(url="https://cdn.example.com/v.mp4")
         record = await self.service.register(message(), "stream-a")
-        self.assertEqual(self.ctx.api.call.await_count, 1)
+        self.assertEqual(self.ctx.api.call.await_count, 2)
         asset = self.assets.peek("stream-a", record["media_id"])
         self.assertEqual(asset.kind, "video")
         self.assertEqual(asset.urls, ("https://cdn.example.com/v.mp4",))
@@ -68,11 +73,12 @@ class RegisterTests(unittest.IsolatedAsyncioTestCase):
     async def test_file_id_falls_back_to_get_group_file_url(self):
         self.ctx.api.call.side_effect = [
             get_msg_response(),
+            {"user_id": "789"},
             {"file": "https://ftn.qq.com/dl?v=1"},
         ]
         record = await self.service.register(message(), "stream-a")
         actions = [c.kwargs["action_name"] for c in self.ctx.api.call.await_args_list]
-        self.assertEqual(actions, ["get_msg", "get_file"])
+        self.assertEqual(actions, ["get_msg", "get_login_info", "get_file"])
         self.assertEqual(
             self.assets.peek("stream-a", record["media_id"]).urls[0],
             "https://ftn.qq.com/dl?v=1",
@@ -80,13 +86,14 @@ class RegisterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_private_message_without_group_raises_without_fallback(self):
         self.ctx.api.call.side_effect = [
-            get_msg_response(),
+            {**get_msg_response(), "group_id": None, "user_id": "10001"},
+            {"user_id": "789"},
             {"file": "/local/path.mp4"},
         ]
         with self.assertRaises(ChatMediaError):
             await self.service.register(message(group=""), "stream-a")
         actions = [c.kwargs["action_name"] for c in self.ctx.api.call.await_args_list]
-        self.assertEqual(actions, ["get_msg", "get_file"])
+        self.assertEqual(actions, ["get_msg", "get_login_info", "get_file"])
 
     async def test_no_video_segment_or_bad_payload_rejected(self):
         self.ctx.api.call.return_value = {"message": [{"type": "text", "data": "hi"}]}
@@ -251,6 +258,8 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["capability"], "api.call")
             args = payload["args"]
             self.assertEqual(args["api_name"], "adapter.napcat.action.call_data")
+            if args["args"]["action_name"] == "get_login_info":
+                return {"success": True, "result": {"user_id": "789"}}
             self.assertEqual(
                 args["args"], {"action_name": "get_msg", "params": {"message_id": "1251563450"}}
             )
@@ -263,7 +272,9 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.chat_media.context = self.plugin.ctx
         result = await self.plugin.chat_video(source_message_id="1251563450", session_id="stream-a")
         self.assertTrue(result["success"], result)
-        self.assertEqual([c["capability"] for c in calls], ["message.get_by_id", "api.call"])
+        self.assertEqual(
+            [c["capability"] for c in calls], ["message.get_by_id", "api.call", "api.call"]
+        )
         asset = self.plugin.media.assets.peek("stream-a", result["media_id"])
         self.assertEqual(asset.urls, ("https://cdn.example.com/v.mp4",))
         self.assertEqual(asset.digest, "")

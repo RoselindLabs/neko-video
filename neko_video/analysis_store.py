@@ -28,6 +28,9 @@ class AnalysisStore:
             raise MediaError("视频分析记录不安全")
         with closing(self.connect()) as con, con:
             con.execute("BEGIN IMMEDIATE")
+            version = con.execute("PRAGMA user_version").fetchone()[0]
+            if version not in (0, 1):
+                raise MediaError("分析/发送账本版本不兼容，保留现场并停止")
             con.execute(
                 "CREATE TABLE IF NOT EXISTS analysis (id TEXT PRIMARY KEY, created REAL, state TEXT, result TEXT)"
             )
@@ -42,6 +45,9 @@ class AnalysisStore:
             con.execute(
                 "CREATE TABLE IF NOT EXISTS analysis_clock (id INTEGER PRIMARY KEY CHECK(id=1), wall REAL, fault TEXT NOT NULL)"
             )
+            # Version 1 separates unresolved attempts from successful cache TTL.
+            # Keep every existing row, including expired legacy unknowns.
+            con.execute("PRAGMA user_version=1")
         self.path.chmod(0o600)
 
     def connect(self):
@@ -119,8 +125,8 @@ class AnalysisStore:
     def unknown(self, con, attempt, now):
         return (
             con.execute(
-                "SELECT 1 FROM analysis a LEFT JOIN analysis_identity m ON a.id=m.id AND a.created=m.created WHERE a.created>? AND a.state IS NOT 'complete' AND (m.attempt=? OR m.attempt='' OR m.id IS NULL) LIMIT 1",
-                (now - 3600, attempt),
+                "SELECT 1 FROM analysis a LEFT JOIN analysis_identity m ON a.id=m.id AND a.created=m.created WHERE a.state IS NOT 'complete' AND (m.attempt=? OR m.attempt='' OR m.id IS NULL) LIMIT 1",
+                (attempt,),
             ).fetchone()
             is not None
         )
@@ -140,7 +146,7 @@ class AnalysisStore:
 
     def admit(self, key, attempt=None):
         with self.transaction() as (con, now):
-            con.execute("DELETE FROM analysis WHERE created<=?", (now - 3600,))
+            con.execute("DELETE FROM analysis WHERE state='complete' AND created<=?", (now - 3600,))
             con.execute("DELETE FROM analysis_identity WHERE id NOT IN (SELECT id FROM analysis)")
             if self.unknown(con, attempt or key, now):
                 return False

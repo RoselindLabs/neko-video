@@ -447,9 +447,10 @@ def validate_original(raw, kind):
         if (
             len(raw) < 16
             or raw[4:8] != b"ftyp"
-            or raw[8:12] not in {b"isom", b"iso2", b"mp41", b"mp42", b"avc1", b"M4V ", b"dash"}
+            or raw[8:12]
+            not in {b"isom", b"iso2", b"mp41", b"mp42", b"avc1", b"M4V ", b"dash", b"qt  "}
         ):
-            raise MediaError("不是可发送的MP4容器")
+            raise MediaError("不是支持的MP4或带ftyp的QuickTime MOV容器")
         return
     preview_image(raw)  # Real decoding and the same bounded pixels/frames as previews.
     try:

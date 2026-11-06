@@ -118,8 +118,9 @@ async def verify(host_source, report):
         os.chdir(instance)
         os.environ["MAIBOT_INSTANCE_DIR"] = str(instance)
         os.environ["MAIBOT_LOCALE"] = "zh-CN"
-        os.environ["MAIBOT_HOST_VERSION"] = "1.3.15"
-        sys.path.insert(0, str(host_source))
+        os.environ["MAIBOT_HOST_VERSION"] = "1.3.19"
+        sys.path[:0] = [str(host_source), str(host_source / "scripts")]
+        import neko_pytest_guard  # noqa: F401
         from src.plugin_runtime.runner.runner_main import PluginRunner, PluginActivationStatus
         from src.plugin_runtime.runner import runner_main
         from src.plugin_runtime import ENV_HOST_VERSION
@@ -130,7 +131,7 @@ async def verify(host_source, report):
         cleanup.callback(engine.dispose)
         cleanup.callback(close_handlers)
 
-        os.environ[ENV_HOST_VERSION] = "1.3.15"
+        os.environ[ENV_HOST_VERSION] = "1.3.19"
         assert runner_main._PROJECT_ROOT == instance, "Refuse live host instance paths"
         plugins = instance / "plugins"
         target = plugins / "neko-video"
@@ -178,6 +179,12 @@ async def verify(host_source, report):
                 if payload["capability"] == "api.call":
                     args = payload["args"]
                     assert args["api_name"] == "adapter.napcat.action.call_data"
+                    if args["args"]["action_name"] == "get_login_info":
+                        chat_calls.append("get_login_info")
+                        return SimpleNamespace(
+                            error=None,
+                            payload={"result": {"success": True, "result": {"user_id": "789"}}},
+                        )
                     assert args["args"] == {
                         "action_name": "get_msg",
                         "params": {"message_id": "123456"},
@@ -190,6 +197,7 @@ async def verify(host_source, report):
                                 "success": True,
                                 "result": {
                                     "message_id": "123456",
+                                    "group_id": "123",
                                     "message": [
                                         {
                                             "type": "video",
@@ -282,13 +290,60 @@ async def verify(host_source, report):
             assert response.error is None, response.error
             registered = response.payload["result"]
             assert registered["success"], registered
-            assert chat_calls == ["message.get_by_id", "get_msg"]
+            assert chat_calls == ["message.get_by_id", "get_msg", "get_login_info"]
             assert (
                 meta.instance.media.assets.peek("synthetic-group", registered["media_id"]).digest
                 == ""
             )
             await verify_gemini_audio()
             await verify_bilibili_subtitle_tool(runner, meta)
+
+            async def hook(name, arguments):
+                result = await runner._handle_hook_invoke(
+                    Envelope(
+                        request_id=3,
+                        message_type="request",
+                        method="plugin.invoke_hook",
+                        plugin_id="neko.video",
+                        payload={"component_name": name, "args": arguments},
+                    )
+                )
+                assert result.error is None and result.payload["success"], result
+                return result.payload
+
+            incoming = {**chat_message, "processed_plain_text": "BV1234567890", "raw_message": []}
+            before = json.dumps(incoming, sort_keys=True)
+            with patch.object(
+                meta.instance.official,
+                "summary",
+                AsyncMock(return_value={"platform": "bilibili", "title": "synthetic reference"}),
+            ):
+                received = await hook("neko_video_context", {"message": incoming})
+            assert (
+                not received.get("modified_kwargs")
+                and json.dumps(incoming, sort_keys=True) == before
+            )
+            original_item = {
+                "item_type": "UserMessageItem",
+                "meta": {"timestamp": "2026-11-06T00:00:00", "item_id": "source"},
+                "parts": [
+                    {
+                        "type": "text",
+                        "text": '<message msg_id="123456" session_id="synthetic-group">\nbody',
+                    }
+                ],
+            }
+            for name in ("neko_video_reference_planner", "neko_video_reference_replyer"):
+                projected = await hook(
+                    name,
+                    {
+                        "items": [original_item],
+                        "session_id": "synthetic-group",
+                        "item_schema_version": 1,
+                    },
+                )
+                assert projected["modified_kwargs"]["items"][0] == original_item
+                assert "synthetic reference" in str(projected["modified_kwargs"]["items"][1])
             report.write_text(
                 json.dumps(
                     {
@@ -305,6 +360,7 @@ async def verify(host_source, report):
                         "existing_unlimited_send_setting_preserved": True,
                         "missing_config_version_negative_test": True,
                         "host_instance_isolated": True,
+                        "temporary_references_real_runner_original_preserved": True,
                         "model_requests": 0,
                         "qq_sends": 0,
                     },
@@ -315,6 +371,7 @@ async def verify(host_source, report):
         finally:
             await runner._invoke_plugin_on_unload(meta)
             assert meta.instance.ready is False
+            assert not meta.instance.references.records
         print("REAL_HOST_PLUGIN_RUNTIME_QA_OK")
 
 

@@ -12,6 +12,7 @@ from .media import MediaError, resolve_media, preview_result, download_image, va
 from .storage import read_json
 from .transport import UA
 from .video_spool import VideoSpool
+from .delivery_store import DeliveryStore
 
 
 class MediaService:
@@ -25,6 +26,25 @@ class MediaService:
             VideoSpool(Path(context.paths.data_dir)) if getattr(context, "paths", None) else None
         )
         self.housekeeper = None
+        self.delivery_store = None
+        self.db_lock = asyncio.Lock()
+
+    async def delivery(self, method, *args):
+        async with self.db_lock:
+
+            def operation():
+                if self.delivery_store is None:
+                    self.delivery_store = DeliveryStore(
+                        Path(self.context.paths.data_dir) / "delivery"
+                    )
+                return getattr(self.delivery_store, method)(*args)
+
+            job = asyncio.create_task(asyncio.to_thread(operation))
+            try:
+                return await asyncio.shield(job)
+            except asyncio.CancelledError:
+                await job
+                raise
 
     async def start(self):
         if self.spool is not None:
@@ -41,9 +61,7 @@ class MediaService:
 
     def enabled(self):
         cfg = self.settings
-        return (
-            not self.closed and cfg.plugin.enabled and cfg.parse.enable_douyin and cfg.media.enabled
-        )
+        return not self.closed and cfg.plugin.enabled and cfg.media.enabled
 
     async def close(self):
         self.closed = True
@@ -68,7 +86,7 @@ class MediaService:
         return saved.get("fallback_token", "").strip()
 
     async def read(self, link, start=0, scope=""):
-        if not self.enabled():
+        if not self.enabled() or not self.settings.parse.enable_douyin:
             return {"success": False, "content": "抖音媒体读取未启用", "content_items": []}
         if isinstance(start, bool) or not isinstance(start, int) or not 0 <= start < 64:
             return {"success": False, "content": "图片起点应为0到63的整数", "content_items": []}
@@ -110,10 +128,13 @@ class MediaService:
 
     async def send(self, key, scope):
         if not self.enabled():
-            return {"success": False, "content": "抖音媒体发送未启用"}
+            return {"success": False, "content": "媒体发送未启用"}
         if not scope or not isinstance(key, str) or len(key) != 32:
             return {"success": False, "content": "缺少当前聊天或媒体编号"}
         try:
+            asset = self.assets.peek(scope, key)
+            if asset.source == "douyin" and not self.settings.parse.enable_douyin:
+                raise MediaError("抖音来源已禁用，本次未发送")
             asset = self.assets.claim(scope, key)
         except ValueError as exc:
             return {"success": False, "content": str(exc)}
@@ -153,6 +174,34 @@ class MediaService:
                                 continue
                     if raw is None and local_video is None:
                         raise MediaError("原媒体无法读取")
+                    digest = (
+                        await asyncio.to_thread(file_digest, local_video)
+                        if local_video is not None
+                        else hashlib.sha256(raw).hexdigest()
+                    )
+                    # Analysis and sending share a content identity, not an opaque QQ hash.
+                    if asset.digest and digest != asset.digest:
+                        raise MediaError("视频内容与已分析来源哈希不符；未发送，不以新内容替代")
+                    asset.digest = digest
+                    if not self.enabled() or (
+                        asset.source == "douyin" and not self.settings.parse.enable_douyin
+                    ):
+                        raise MediaError("媒体来源已撤权；未发送")
+                    identity = hashlib.sha256(
+                        ("send-v1\0" + scope + "\0" + asset.kind + "\0" + digest).encode()
+                    ).hexdigest()
+                    # Set unknown before cancellation-safe durable admission. Cancellation
+                    # may arrive after SQLite commits; never turn it back into ready.
+                    started = True
+                    admitted = await self.delivery("admit", identity, identity)
+                    if not admitted:
+                        raise MediaError(
+                            "同一聊天与内容已有未决投递；换编号、等待或重载均不会解除，禁止自动重发"
+                        )
+                    if not self.enabled() or (
+                        asset.source == "douyin" and not self.settings.parse.enable_douyin
+                    ):
+                        raise MediaError("准入后媒体来源已撤权；保留未决记录，不发送或自动重试")
                     asset.state = "unknown"
                     started = True
                     if asset.kind == "image":
@@ -183,6 +232,7 @@ class MediaService:
                             "content": "已尝试投递但未确认，不自动重发。",
                         }
                     asset.state = "sent"
+                    await self.delivery("confirmed", identity)
                     return {
                         "success": True,
                         "status": "sent",
@@ -191,12 +241,19 @@ class MediaService:
         except asyncio.CancelledError:
             asset.state = "unknown" if started else "ready"
             raise
-        except Exception:
+        except Exception as exc:
             asset.state = "unknown" if started else "ready"
             return {
                 "success": False,
                 "status": "delivery_unconfirmed" if started else "unavailable",
-                "content": "原媒体读取或发送未确认；图片上限8MiB，视频按配置及缓存/磁盘/时限保护。未知投递不自动重发，不以预览替代。",
+                "content": str(exc)
+                if isinstance(exc, MediaError)
+                else "原媒体读取或发送未确认；图片上限8MiB，视频按配置及缓存/磁盘/时限保护。未知投递不自动重发，不以预览替代。",
             }
         finally:
             self.tasks.discard(task)
+
+
+def file_digest(path):
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()

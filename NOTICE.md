@@ -20,3 +20,8 @@ The two third-party parser response formats were supplied as Android client
 examples. No Android UI, third-party token, account cookie, runtime configuration
 or user data is included. Parser services are external dependencies, not services
 owned or endorsed by this project.
+
+The temporary-reference header and shared-Focus binding contract in
+`neko_video/context.py` is adapted from RoselindLabs/maibot-read-gif
+`read_animation/context.py` (MIT, Copyright (c) 2026 fabiocsa).
+The MIT permission and warranty terms in LICENSE apply to this retained attribution.

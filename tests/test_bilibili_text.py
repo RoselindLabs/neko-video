@@ -201,12 +201,17 @@ class BilibiliTextTests(unittest.IsolatedAsyncioTestCase):
         result = await plugin.bilibili(link=BV)
         self.assertTrue(result["success"])
         self.assertIn("字幕摘录", result["content"])
-        message = {"processed_plain_text": BV, "raw_message": [], "message_info": {}}
+        message = {
+            "session_id": "s",
+            "message_id": "42",
+            "processed_plain_text": BV,
+            "raw_message": [],
+            "message_info": {},
+        }
         before = copy.deepcopy(message)
         hooked = await plugin.inject(message=message)
-        self.assertIn(
-            "未读取画面或音频", hooked["modified_kwargs"]["message"]["processed_plain_text"]
-        )
+        self.assertEqual(hooked, {"action": "continue"})
+        self.assertIn("未读取画面或音频", plugin.references.records[("s", "42")][1])
         self.assertEqual(message, before)
 
     def test_long_content_retains_warning_and_provenance_in_bounded_block(self):

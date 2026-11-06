@@ -10,8 +10,8 @@ These are **not** an OS sandbox or immunity to decoder vulnerabilities. Keep
 ffmpeg/ffprobe patched. Non-Linux lacks these Linux rlimits; the real-binary
 production smoke gate runs on Linux.
 
-Frames go to the existing vlm supplier. Explicit `include_audio=true` additionally
-requires the separate, default-off `asr.enabled` setting. Only the first audio
+Frames go to the existing vlm supplier. Since 1.5, analyze follows the administrator's
+`asr.enabled` setting (default true); no model-controlled audio switch. Only the first audio
 track is decoded to bounded 16kHz mono PCM WAV in memory and sent to the host's
 existing `voice` task via `llm.transcribe_audio`. No new credentials or provider
 fallback are added by this plugin; Gemini-configured voice tasks use native
@@ -33,8 +33,9 @@ work is not replayed after reload, even if ASR completed before a visual failure
 Since 1.3.1, unknown work is keyed by chat/content independently of configuration
 and audio options, and takes precedence over successful cached variants. Old
 opaque unknown rows cannot be mapped back to chat/content: they conservatively
-block all analysis/cache reads until their original one-hour expiry, without
-deleting evidence or extending that expiry. New rows retain chat/content isolation.
+block all analysis/cache reads until offline investigation; since 1.6 unresolved
+attempts never expire. Existing expired unknown rows are preserved during upgrade.
+New rows retain chat/content isolation. Already deleted historical rows cannot be recovered.
 The original four-column analysis table remains compatible with baseline SQL;
 identity mappings are committed in a separate table in the same transaction.
 The transitional five-column table is restored transactionally, preserving all
@@ -47,10 +48,10 @@ over 5 seconds in one process (including cumulative small steps), or a wall
 rollback over 5 seconds since the persisted observation, also fails closed.
 Faults stop analysis/cache reads until offline operator investigation and a
 reviewed repair; restart/clock correction alone must not clear evidence.
-Forward jumps across restart cannot reliably be distinguished from real downtime:
-the one-hour TTL still relies on trusted wall time at that boundary and is not
-an absolute billing-idempotency guarantee. Unobserved clock changes are not
-claimed detectable. Keep analysis disabled if this boundary is unacceptable.
+Forward jumps across restart cannot reliably be distinguished from real downtime;
+only successful cache TTL depends on this boundary. Unresolved work does not expire.
+Unobserved clock changes are not claimed detectable. This is not a supplier-level
+billing-idempotency guarantee; host/provider retries remain outside plugin control.
 Private transcript text uses the same bounded one-hour logical result cache;
 physical SQLite expiry cleanup is deferred until a later admission. No audio
 sidecar is written by this plugin; the host/provider may retain request data.
@@ -84,6 +85,21 @@ MP4 validation checks a container signature only, not full decoding. Video bytes
 are never passed as an arbitrary remote URL to the messaging platform. A failed
 or ambiguous send must not be retried automatically; a platform request accepted
 is not proof that a recipient displayed it.
+
+1.6 also accepts bounded QuickTime MOV with an ftyp/qt major brand; other containers
+remain rejected. Analysis keeps its file/pipe and mov demuxer whitelist. Sends bind
+the actual bytes to any prior analysis hash. Durable delivery admission in
+delivery/attempts.db uses chat/type/content hash before SDK invocation. Unknowns
+survive handle recreation, reload, expiry and cancellation; only explicit success
+removes that admission. Each ledger holds at most 128 rows and refuses when full.
+Old pre-1.6 in-memory delivery unknowns cannot be reconstructed. Do not run bare
+old code on either ledger or restore an old DB over new unknowns.
+
+Automatic platform summaries are ephemeral request references, not rewritten IM.
+They remain untrusted external data; later natural model replies can still influence
+summaries. HTTP parser authentication remains unresolved: public documentation
+search did not establish an equivalent HTTPS endpoint of the same supplier. No
+endpoint probing or automatic supplier switch was performed.
 
 Video1.1 uses256KiB chunks to a private local spool; only a generated file URI
 crosses RPC. The QQ client must share the file system. No tool accepts a local

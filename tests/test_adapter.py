@@ -109,16 +109,17 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             return_value={"platform": "douyin", "title": "test", "summary": "fixture"}
         )
         message = {
+            "session_id": "chat",
+            "message_id": "42",
             "processed_plain_text": "https://v.douyin.com/test/",
             "message_info": {},
             "raw_message": [],
         }
         original = copy.deepcopy(message)
         result = await self.plugin.inject(message=message)
-        updated = result["modified_kwargs"]["message"]
         self.assertEqual(message, original)
-        self.assertIn("fixture", updated["processed_plain_text"])
-        self.assertEqual(await self.plugin.inject(message=updated), {"action": "continue"})
+        self.assertEqual(result, {"action": "continue"})
+        self.assertIn("fixture", self.plugin.references.records[("chat", "42")][1])
 
     async def test_hook_timeout_preserves_input(self):
         self.plugin.config.plugin.enabled = True

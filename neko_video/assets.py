@@ -4,6 +4,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from .media import MediaError
+
 
 @dataclass
 class Asset:
@@ -13,6 +15,7 @@ class Asset:
     digest: str
     expires: float
     state: str = "ready"
+    source: str = "douyin"
 
 
 class MediaAssets:
@@ -23,7 +26,7 @@ class MediaAssets:
     def clear(self):
         self.items.clear()
 
-    def add(self, scope, kind, urls, digest=""):
+    def add(self, scope, kind, urls, digest="", *, source="douyin"):
         now = self.clock()
         for key, asset in list(self.items.items()):
             if asset.expires <= now:
@@ -34,7 +37,7 @@ class MediaAssets:
         while len(self.items) >= 128:
             self.items.pop(next(iter(self.items)))
         key = uuid.uuid4().hex
-        self.items[key] = Asset(scope, kind, tuple(urls[:8]), digest, now + 600)
+        self.items[key] = Asset(scope, kind, tuple(urls[:8]), digest, now + 600, source=source)
         return key
 
     def claim(self, scope, key):
@@ -48,5 +51,7 @@ class MediaAssets:
         """Analysis may inspect a handle without claiming/resetting delivery state."""
         asset = self.items.get(key)
         if asset is None or asset.scope != scope or asset.expires <= self.clock():
-            raise ValueError("媒体编号已过期或不属于当前聊天，请重新读取")
+            raise MediaError(
+                "媒体编号已失效或不属于当前聊天；本次未提交模型或发送。核对目标聊天，可重新open取得编号；如已有unknown，不得据此重做分析或重发，原防重仍生效"
+            )
         return asset

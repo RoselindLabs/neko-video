@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 async def main():
     from neko_video.video_frames import extract
     from neko_video.video_audio import extract_audio
-    from neko_video.media import MediaError
+    from neko_video.media import MediaError, validate_original
 
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     assert ffmpeg and ffprobe, "Real ffmpeg and ffprobe required; do not skip this gate"
@@ -80,6 +80,29 @@ async def main():
             stderr=subprocess.PIPE,
         )
         with_audio, _, _ = await extract(audible, 120, 2)
+        mov = Path(directory) / "audible.mov"
+        subprocess.run(
+            [
+                ffmpeg,
+                "-nostdin",
+                "-v",
+                "error",
+                "-i",
+                str(audible),
+                "-c",
+                "copy",
+                "-f",
+                "mov",
+                str(mov),
+            ],
+            check=True,
+            timeout=15,
+        )
+        validate_original(mov.read_bytes()[:16], "video")
+        mov_info, mov_positions, mov_images = await extract(mov, 120, 2)
+        assert mov_info["has_audio_track"] and len(mov_images) == len(mov_positions) == 2
+        mov_wav, mov_seconds = await extract_audio(mov, 120)
+        assert mov_wav.startswith(b"RIFF") and 2.9 <= mov_seconds <= 3.2
         assert with_audio["has_audio_track"] is True
         wav, seconds = await extract_audio(audible, 120)
         assert 2.9 <= seconds <= 3.2 and len(wav) < 120 * 16000 * 2 + 44

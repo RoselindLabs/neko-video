@@ -10,7 +10,7 @@ import re
 from urllib.parse import urlsplit
 
 VIDEO_TEXT = re.compile(r"\[视频\][^\n]{0,300}")
-VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".avi", ".flv", ".webm")
+VIDEO_EXTENSIONS = (".mp4", ".mov")
 MAX_NAME = 240
 
 
@@ -113,6 +113,20 @@ class ChatMediaService:
     async def _source_segment(self, message, message_id):
         """Read original video/file segments, never a URL copied from chat text."""
         detail = await self._action_data("get_msg", {"message_id": str(message_id)})
+        info = message.get("message_info") or {}
+        group = str((info.get("group_info") or {}).get("group_id") or "")
+        user = self._peer(message)
+        if str(detail.get("message_id") or "") != message_id:
+            raise ChatMediaError("QQ视频消息编号与当前消息不符")
+        if group:
+            if str(detail.get("group_id") or "") != group:
+                raise ChatMediaError("QQ视频来自其他群聊")
+        else:
+            sender = str(detail.get("user_id") or (detail.get("sender") or {}).get("user_id") or "")
+            if sender == str(message.get("account_id") or ""):
+                sender = str(detail.get("target_id") or "")
+            if detail.get("group_id") or not user or sender != user:
+                raise ChatMediaError("QQ视频来自其他私聊或缺少真实对端")
         segments = detail.get("message")
         if not isinstance(segments, list) or len(segments) > 64:
             raise ChatMediaError("QQ消息详情缺少消息段")
@@ -130,19 +144,12 @@ class ChatMediaService:
         if found[0][0] == "file":
             info = message.get("message_info") or {}
             group = str((info.get("group_info") or {}).get("group_id") or "")
-            user = str((info.get("user_info") or {}).get("user_id") or "")
+            user = self._peer(message)
             if str(detail.get("message_id") or "") != message_id:
                 raise ChatMediaError("QQ文件消息编号与当前消息不符")
             if group:
                 if str(detail.get("group_id") or "") != group:
                     raise ChatMediaError("QQ文件来自其他群聊")
-            elif (
-                detail.get("group_id")
-                or not user
-                or str(detail.get("user_id") or (detail.get("sender") or {}).get("user_id") or "")
-                != user
-            ):
-                raise ChatMediaError("QQ文件来自其他私聊")
             if not group:
                 actual_hash = attachment_hash(found[0][1])
                 # Host file components currently omit hashes. If a structured
@@ -164,21 +171,35 @@ class ChatMediaService:
                             raise ChatMediaError("原私聊视频附件校验来源发生变化")
         return found[0]
 
-    async def _file_url(self, data, message):
+    @staticmethod
+    def _peer(message):
+        info = message.get("message_info") or {}
+        user = str((info.get("user_info") or {}).get("user_id") or "")
+        if user == str(message.get("account_id") or ""):
+            user = str(
+                (info.get("additional_config") or {}).get("platform_io_target_user_id") or ""
+            )
+        return user
+
+    async def _account(self, message):
         info = message.get("message_info") or {}
         account = str(message.get("account_id") or "")
         group = str((info.get("group_info") or {}).get("group_id") or "")
-        user = str((info.get("user_info") or {}).get("user_id") or "")
+        user = self._peer(message)
         if (
             not account.isdecimal()
             or (group and not group.isdecimal())
             or (not group and not user.isdecimal())
         ):
             raise ChatMediaError("视频文件缺少当前QQ账号或聊天归属")
-        file_hash = attachment_hash(data) if not group else ""
         login = await self._action_data("get_login_info", {})
         if str(login.get("user_id") or "") != account:
             raise ChatMediaError("QQ文件接口登录账号与消息账号不符")
+        return group, user
+
+    async def _file_url(self, data, message):
+        group, user = await self._account(message)
+        file_hash = attachment_hash(data) if not group else ""
         for key in ("url", "file_url", "file"):
             if url := resource_url(data.get(key)):
                 return url
@@ -266,6 +287,8 @@ class ChatMediaService:
                 kind = "file"
             else:
                 kind, data, name = await self._source_segment(message, message_id)
+            if kind == "video":
+                await self._account(message)
             url = (
                 await self._file_url(data, message)
                 if kind == "file"
@@ -273,7 +296,7 @@ class ChatMediaService:
             )
         # Video analysis hashes downloaded content itself; registering a
         # non-content digest would make that check always fail.
-        media_id = self.assets.add(scope, "video", (url,), "")
+        media_id = self.assets.add(scope, "video", (url,), "", source="chat")
         return {
             "media_id": media_id,
             "name": name,

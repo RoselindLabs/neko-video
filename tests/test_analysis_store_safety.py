@@ -150,18 +150,18 @@ class StoreSafetyTests(unittest.TestCase):
                         con.execute("SELECT COUNT(*) FROM analysis_identity").fetchone()[0], 0
                     )
 
-    def test_normal_elapsed_time_expires_and_minor_clock_skew_is_tolerated(self):
+    def test_normal_elapsed_time_never_expires_unknown(self):
         self.store.admit("a", "identity")
         self.wall += 3601
         self.tick += 3600
-        self.assertTrue(self.store.admit("b", "identity"))
-        self.assertEqual([row[0] for row in self.rows()], ["b"])
+        self.assertFalse(self.store.admit("b", "identity"))
+        self.assertEqual([row[0] for row in self.rows()], ["a"])
 
     def test_forward_jump_across_restart_is_not_claimed_detectable(self):
         self.store.admit("a", "identity")
         self.wall += 3601
         # No monotonic baseline survives restart: indistinguishable from legitimate downtime.
-        self.assertTrue(self.open_store().admit("b", "identity"))
+        self.assertFalse(self.open_store().admit("b", "identity"))
 
     def test_primary_row_and_identity_mapping_are_one_atomic_admission(self):
         with closing(sqlite3.connect(self.store.path)) as con, con:
