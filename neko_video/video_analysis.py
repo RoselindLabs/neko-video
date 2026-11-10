@@ -131,7 +131,7 @@ class VideoAnalyzer:
                 + f"本段字符范围[{offset},{min(offset + 6000, len(text))})，缓存正文共{len(text)}字符。\n"
                 + text[offset : offset + 6000]
                 + (
-                    f"\n尚有缓存正文：用原media_id调用neko_video_analyze(offset={offset + 6000})；仅续读成功缓存，不重新调用模型。"
+                    f"\n尚有缓存正文：用原media_id调用neko_video_analyze(media_id=原编号, offset={offset + 6000})；仅续读成功缓存，不重新调用模型。"
                     if offset + 6000 < len(text)
                     else "\n已到缓存正文末尾；不代表完整视频覆盖。"
                 )
@@ -159,7 +159,7 @@ class VideoAnalyzer:
         if type(offset) is not int or not 0 <= offset <= 24000:
             return {
                 "success": False,
-                "content": "analysis_offset须为0到24000的整数",
+                "content": "offset须为0到24000的整数；续读使用上次正文提示的偏移，仍传原media_id",
                 "content_items": [],
             }
         if (
@@ -363,7 +363,7 @@ class VideoAnalyzer:
         except TimeoutError:
             return {
                 "success": False,
-                "content": "视频分析超时；如视觉或ASR请求已提交，其结果未知，不自动重试",
+                "content": "视频分析超时；如视觉或ASR请求已提交，其结果未知。禁止自行重试、重新open或换编号重做，需管理员核查原请求",
                 "content_items": [],
             }
         except Exception:

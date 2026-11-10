@@ -258,14 +258,14 @@ class MediaService:
                         return {
                             "success": False,
                             "status": "delivery_unconfirmed",
-                            "content": "已尝试投递但未确认，不自动重发。",
+                            "content": "已尝试投递但未确认；禁止重发、重新open、换编号或等待后重发，需管理员核查。",
                         }
                     asset.state = "sent"
                     await self.delivery("confirmed", identity)
                     return {
                         "success": True,
                         "status": "sent",
-                        "content": "平台已确认发送请求；原字节未重编码，QQ仍可能压缩或转码。",
+                        "content": "平台已确认发送请求，不等于已核实收件人显示；原字节未重编码，QQ仍可能压缩或转码。",
                     }
         except asyncio.CancelledError:
             asset.state = "unknown" if started else "ready"
@@ -277,7 +277,7 @@ class MediaService:
                 "status": "delivery_unconfirmed" if started else "unavailable",
                 "content": str(exc)
                 if isinstance(exc, MediaError)
-                else "原媒体读取或发送未确认；图片上限8MiB，视频按配置及缓存/磁盘/时限保护。未知投递不自动重发，不以预览替代。",
+                else "原媒体读取或发送未确认；图片上限8MiB，视频按配置及缓存/磁盘/时限保护。未知投递禁止重试、重新open或换编号重发，不以预览替代。",
             }
         finally:
             self.tasks.discard(task)

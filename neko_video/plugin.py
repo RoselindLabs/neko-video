@@ -255,7 +255,7 @@ class NekoVideoPlugin(MaiBotPlugin):
 
     @Tool(
         "neko_video_open",
-        description="打开B站/抖音媒体或按真实消息ID登记聊天视频/附件。",
+        description="打开B站/抖音或按真实消息ID登记视频；理解内容须再analyze。",
         timeout_ms=130000,
         parameters=[
             ToolParameterInfo(
@@ -273,8 +273,9 @@ class NekoVideoPlugin(MaiBotPlugin):
             ToolParameterInfo(
                 name="image_start",
                 param_type=ToolParamType.INTEGER,
-                description="图片起点，从0开始，每次最多4张",
+                description="图片起点，省略为0，每次最多4张；续页仍传原link及返回的next_image_start，不传媒体编号",
                 required=False,
+                default=0,
             ),
         ],
     )
@@ -304,13 +305,13 @@ class NekoVideoPlugin(MaiBotPlugin):
 
     @Tool(
         "neko_video_analyze",
-        description="分析本聊天视频编号，默认带音轨；也可续读已有分析结果。",
+        description="对本聊天视频编号抽帧理解，按设置转写音轨；可续读成功缓存。",
         timeout_ms=130000,
         parameters=[
             ToolParameterInfo(
                 name="media_id",
                 param_type=ToolParamType.STRING,
-                description="open返回的本聊天视频media_id；不接受URL/路径，不自动重试未知请求",
+                description="open返回的本聊天视频media_id或实况motion_id，不是封面图片编号；不接受URL/路径。已有成功结果可复用，未知请求禁止换编号重做",
                 required=True,
             ),
             ToolParameterInfo(
@@ -318,6 +319,7 @@ class NekoVideoPlugin(MaiBotPlugin):
                 param_type=ToolParamType.INTEGER,
                 description="首次0；续读填正文提示的offset或next_analysis_offset，仅取成功缓存，不重新调用模型",
                 required=False,
+                default=0,
             ),
         ],
     )
@@ -456,22 +458,25 @@ class NekoVideoPlugin(MaiBotPlugin):
             "success": True,
             "content": (
                 f"已登记聊天视频「{record['name']}」，media_id={record['media_id']}。"
-                "需要理解内容时用neko_video_analyze(media_id=...)，默认按插件设置带音轨；"
-                "需要发送时用neko_video_send。"
+                "尚未分析或发送。"
+                f'需要理解内容时调用neko_video_analyze(media_id="{record["media_id"]}")，'
+                "才会抽帧并按管理员设置转写第一音轨；不用传include_audio。"
+                "需要向QQ发送原视频时调用neko_video_send(media_id=同一编号)，无需先分析。"
+                "编号仅本聊天10分钟有效；未知分析或投递不得通过重新open、换编号或等待重做。"
             ),
             **record,
         }
 
     @Tool(
         "neko_video_send",
-        description="发送本聊天媒体编号对应的原图、视频或实况。",
+        description="向QQ发送本聊天编号对应的原图、视频或实况；仅需发送时调用。",
         platforms=["qq"],
         timeout_ms=190000,
         parameters=[
             ToolParameterInfo(
                 name="media_id",
                 param_type=ToolParamType.STRING,
-                description="open返回的本聊天media_id；投递未知时禁止重新open、换编号或等待后重发",
+                description="open返回的本聊天media_id或实况motion_id，非图片序号/消息ID；直接发送无需先分析。投递未知时禁止重新open、换编号或等待后重发",
                 required=True,
             )
         ],

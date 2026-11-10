@@ -171,7 +171,9 @@ async def request(client, method, path, key, **kwargs):
                 raise MediaError("DTK响应合同不匹配")
             return response.status_code, payload["data"]
     except (httpx.HTTPError, ValueError, UnicodeError, RecursionError):
-        raise MediaError("DTK请求失败，未重复提交") from None
+        raise MediaError(
+            "DTK请求失败，未重复提交；不要反复open或换源，需管理员核查服务与访问权限"
+        ) from None
 
 
 async def resolve_dtk(client, text, key, endpoint=ENDPOINT):
@@ -221,11 +223,13 @@ async def resolve_dtk(client, text, key, endpoint=ENDPOINT):
                 if task.get("state") == "done":
                     return media_result(task.get("data"), vid, platform, part, short)
                 if task.get("state") not in ("queued", "running"):
-                    raise MediaError("DTK任务未成功，未重复提交")
-            raise MediaError("DTK任务等待到期，未重复提交")
+                    raise MediaError("DTK任务未成功，未重复提交；不要反复open或换源，需管理员核查")
+            raise MediaError("DTK任务等待到期，本次已结束；远端可能仍在处理，不要反复open或换源")
     except MediaError:
         raise
     except (TimeoutError, ValueError):
-        raise MediaError("DTK解析失败或等待到期，未重复提交") from None
+        raise MediaError(
+            "DTK解析失败或等待到期，本次已结束；远端可能仍在处理，不要反复open或换源，需管理员核查"
+        ) from None
     # Cancellation propagates. Do not DELETE: DTK may coalesce other callers
     # onto this task; local cancellation does not imply upstream cancellation.

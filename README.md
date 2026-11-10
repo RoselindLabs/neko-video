@@ -1,5 +1,9 @@
 # Neko Video
 
+## 1.7.1：四工具调用指引
+
+模型可见提示和返回正文明确：info仅平台文字；open只预览/登记，理解视频须再analyze，按管理员设置转写音轨；send直接发送，无需先分析。视频media_id、实况motion_id与封面图片编号分别说明。图文续页携带原link，分析续读携带原media_id；image_start/offset的Schema默认值均为0。未知分析/投递及DTK等待失败不能靠重新open、换编号或换源重做。四工具、12帧、ASR、DTK来源与现有权限/账本策略保持；Host1.4.3与SDK2.22.1合成消费验证不代表真实媒体或QQ验收。
+
 ## 1.7.0：可选本机 DTK 媒体解析
 
 管理员在WebUI「看图与发送媒体」选择`media.provider="dtk"`后，B站和抖音显式`neko_video_open`使用固定`http://127.0.0.1:25526`的DTK 5.1.11 API（源码`49f4a9730b478c5f56d843a1c033e0960814aaaf`）。默认`legacy`仅保留原抖音来源，不自动切换线上配置。

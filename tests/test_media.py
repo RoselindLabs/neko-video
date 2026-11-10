@@ -257,6 +257,8 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
         result = await preview_result(rich_result(fixture()), 0, None, fetch=fetch)
         self.assertEqual(len(result["content_items"]), 3)
         self.assertEqual(result["next_image_start"], 4)
+        self.assertIn("neko_video_open(link=原分享链接, image_start=4)", result["content"])
+        self.assertIn("尚未分析视频", result["content"])
         self.assertEqual(result["status"], "partial")
         self.assertEqual([x["metadata"]["image_index"] for x in result["content_items"]], [1, 3, 4])
         self.assertTrue(

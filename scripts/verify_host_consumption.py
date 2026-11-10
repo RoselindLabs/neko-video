@@ -1,6 +1,7 @@
 """Additional real Host consumption check; runtime loader QA remains separate."""
 
 import argparse
+import asyncio
 from contextlib import ExitStack
 from datetime import datetime
 import os
@@ -18,7 +19,7 @@ def verify(host, temp_dir):
         os.chdir(directory)
         cleanup.callback(os.chdir, cwd)
         os.environ.update(
-            MAIBOT_INSTANCE_DIR=directory, MAIBOT_LOCALE="zh-CN", MAIBOT_HOST_VERSION="1.3.19"
+            MAIBOT_INSTANCE_DIR=directory, MAIBOT_LOCALE="zh-CN", MAIBOT_HOST_VERSION="1.4.3"
         )
         sys.path[:0] = [str(root), str(host), str(host / "scripts")]
         import neko_pytest_guard  # noqa: F401
@@ -38,12 +39,36 @@ def verify(host, temp_dir):
         from src.llm_models.payload_content.context_item import RoleType
         from src.common.database.database import engine
         from src.common.logger import close_handlers
-        from neko_video.video_analysis import VideoAnalyzer
-        from neko_video.context import VideoContext
-        from neko_video.config import Config
 
         cleanup.callback(engine.dispose)
         cleanup.callback(close_handlers)
+        from neko_video.video_analysis import VideoAnalyzer
+        from neko_video.context import VideoContext
+        from neko_video.config import Config
+        from neko_video.media import preview_result
+        from neko_video.presentation import render
+        from neko_video.plugin import NekoVideoPlugin
+        from maibot_sdk.components import collect_components
+        from src.core.tooling import normalize_tool_description
+
+        # Actual SDK metadata -> actual Host tool schema, not a hand-written schema.
+        components = collect_components(NekoVideoPlugin())
+        tools = [item for item in components if item["type"] == "TOOL"]
+        assert len(tools) == 4
+        schemas = {}
+        for tool in tools:
+            meta = normalize_tool_description(tool["metadata"])
+            entry = SimpleNamespace(
+                name=tool["name"],
+                description=meta["description"],
+                parameters_raw=meta["parameters"],
+                parameters=[],
+            )
+            schemas[tool["name"]] = ComponentQueryService._build_tool_parameters_schema(entry)
+        assert schemas["neko_video_analyze"]["required"] == ["media_id"]
+        assert schemas["neko_video_send"]["required"] == ["media_id"]
+        assert "原link" in schemas["neko_video_open"]["properties"]["image_start"]["description"]
+        assert "motion_id" in schemas["neko_video_analyze"]["properties"]["media_id"]["description"]
         value = VideoAnalyzer.output(
             {
                 "success": True,
@@ -84,6 +109,32 @@ def verify(host, temp_dir):
             entry, {"success": True, "next_analysis_offset": 6000}
         )
         assert "next_analysis_offset" in fallback.get_history_content()
+        # No HTTP/model calls: media with no covers/images only registers a synthetic handle.
+        opened = asyncio.run(
+            preview_result(
+                {
+                    "title": "synthetic",
+                    "author": "",
+                    "images": [],
+                    "image_total": 0,
+                    "covers": [],
+                    "video_urls": ["https://media.example/video"],
+                },
+                0,
+                None,
+                register=lambda *args: "a" * 32,
+            )
+        )
+        opened_entry = SimpleNamespace(name="neko_video_open", plugin_id="neko.video")
+        opened_result = ComponentQueryService._parse_tool_invoke_result(opened_entry, opened)
+        history = opened_result.get_history_content()
+        assert 'neko_video_analyze(media_id="' + "a" * 32 + '")' in history
+        assert "尚未分析视频" in history and "无需先分析" in history and "10分钟" in history
+        info_result = ComponentQueryService._parse_tool_invoke_result(
+            SimpleNamespace(name="neko_video_info", plugin_id="neko.video"),
+            {"success": True, "content": render({"platform": "bilibili", "title": "synthetic"})},
+        )
+        assert "未分析画面或音轨" in info_result.get_history_content()
         refs = VideoContext()
         refs.record({"session_id": "s", "message_id": "42"}, "external", "bilibili")
         prefix = build_planner_prefix(
