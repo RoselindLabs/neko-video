@@ -2,7 +2,7 @@
 
 ## Optional video analysis and ASR (1.2.0 / 1.3.0)
 
-Disabled by default; accepts existing chat-scoped video handles only. Decodes
+Video analysis is disabled by default; accepts existing chat-scoped video handles only. Decodes
 plugin-owned MP4/MOV bytes, not arbitrary paths, URLs, archives or chat files.
 Explicit argv, restricted file/pipe protocols/formats, bounded output, deadlines
 and cancellation cleanup apply. Linux also limits child address space/CPU/FDs.
@@ -26,7 +26,8 @@ instructions. No QQ sending or media delivery-state reset occurs in analysis.
 Persistent unknown admission precedes the logical SDK call; no plugin-level
 retry of ambiguous work. Host/provider retries and upstream cancellation cannot
 be guaranteed. Private bounded results do not prove full video comprehension;
-audio is not analyzed unless explicitly requested and enabled. Audio/transcript
+audio follows the administrator's ASR setting during an explicit analyze call;
+open and info never trigger ASR. Audio/transcript
 instructions are untrusted data; the transcript is not sent to the visual model.
 ASR failures do not silently degrade to visual-only success. Combined unknown
 work is not replayed after reload, even if ASR completed before a visual failure.
@@ -72,7 +73,7 @@ visual/audio analysis or executable instruction. Metadata-only results use at
 most 30 seconds of backoff, not a claim that no summary exists; no background
 retry or model/ASR call is added.
 Third-party media parsers receive a public share link or video ID, never those
-account cookies. The default primary parser uses plain HTTP: observers on that
+account cookies. The default legacy provider's primary parser uses plain HTTP: observers on that
 path may read or alter that request/response. Use only public share links and
 disable `media.enabled` if this trust model is unacceptable.
 
@@ -80,7 +81,9 @@ Since 1.7, administrators may instead choose `media.provider=dtk` for explicit
 Douyin and Bilibili media opens. This uses only `http://127.0.0.1:25526`, DTK 5.1.11; it is a
 separate trusted control-plane exception, never a relaxation of media URL rules.
 The plugin reads only its private `dtk-api-secrets.json` API key, not DTK identities
-or cookies. Use a viewer key with only `douyin:read` and `bilibili:read`, directory 0700/file 0600. No pinned identity or management scope is requested. The key travels
+or cookies. Use a viewer key with only `douyin:read` and `bilibili:read`, directory
+0700/file 0600. Normal content task polling needs no additional scope: no media,
+download, pinned-identity or management permission is requested. The key travels
 only in the fixed API Authorization header, with redirects and environment proxies
 disabled, never to the separate anonymous media client. Responses are bounded to
 2MiB and errors are fixed strings; raw/meta/diagnostic payloads are not exposed.
@@ -102,7 +105,10 @@ availability, safety of every downstream decoder, or original quality in QQ.
 MP4 validation checks a container signature only, not full decoding. Video bytes
 are never passed as an arbitrary remote URL to the messaging platform. A failed
 or ambiguous send must not be retried automatically; a platform request accepted
-is not proof that a recipient displayed it.
+is not proof that a recipient displayed it. Conversely, an adapter timeout is not
+proof of non-delivery: QQ may have accepted the upload before the response timed
+out. Such unknown outcomes remain blocked; observed delivery does not automatically
+clear the ledger or authorize a retry.
 
 1.6 also accepts bounded QuickTime MOV with an ftyp/qt major brand; other containers
 remain rejected. Analysis keeps its file/pipe and mov demuxer whitelist. Sends bind
@@ -115,7 +121,7 @@ old code on either ledger or restore an old DB over new unknowns.
 
 Automatic platform summaries are ephemeral request references, not rewritten IM.
 They remain untrusted external data; later natural model replies can still influence
-summaries. HTTP parser authentication remains unresolved: public documentation
+summaries. Legacy HTTP parser authentication remains unresolved: public documentation
 search did not establish an equivalent HTTPS endpoint of the same supplier. No
 endpoint probing or automatic supplier switch was performed.
 
