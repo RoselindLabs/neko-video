@@ -1,5 +1,18 @@
 # Neko Video
 
+## 1.7.0：可选本机 DTK 媒体解析
+
+管理员在WebUI「看图与发送媒体」选择`media.provider="dtk"`后，B站和抖音显式`neko_video_open`使用固定`http://127.0.0.1:25526`的DTK 5.1.11 API（源码`49f4a9730b478c5f56d843a1c033e0960814aaaf`）。默认`legacy`仅保留原抖音来源，不自动切换线上配置。
+
+- DTK控制台中已导入的游客Cookie由DTK自行管理，用于显式open取源。插件不读取、复制或输出它们；管理员另建viewer角色、仅具`douyin:read`和`bilibili:read`权限的API Key，在**本插件私有data_dir**创建`dtk-api-secrets.json`，唯一字段`api_key`填写Key，目录0700/文件0600。普通任务轮询不需额外scope，不指定identity，不请求管理权限。不把Key写入仓库、聊天、日志或普通工具参数；该文件不能用Cookie替代。API地址不能由模型改写，也不支持任意内网地址/远端地址。
+- 使用方式：发B站/抖音链接后要求“看看这条视频/图文”，open取得本聊天编号，再显式analyze或send。共同受plugin.enabled、media.enabled控制；parse.enable_douyin只控制抖音来源，B站及聊天视频独立。分析/ASR沿原配置，不因切换来源开启。
+- 每次解析只提交一次：抖音`POST /api/v1/parse?wait=0`，B站`GET /api/v1/bilibili/video?wait=0&part=N`。202仅轮询同一个UUID；最多25秒/25次查询，仍在原open总期限内。失败/404/超时/取消不重新提交、不切旧供应商。取消仅停止本地等待；DTK可能已运行或与其他调用合并，因此不DELETE共享任务，不能承诺撤销远端工作。后续独立显式open是新调用，DTK自身可复用缓存；插件不承诺跨调用/重载解析幂等。
+- 返回图片、实况和视频复用现有公网IP固定、URL/重定向/大小/容器校验及会话编号、12帧、ASR、永久unknown账本。API鉴权客户端和公网媒体客户端分离，Key/Cookie不发给媒体CDN。DTK失败信息仅固定脱敏文字，不返回原始响应、任务meta或raw。
+- **B站选P**：BV/av号及无p参数的完整video链接默认P1，完整链接`?p=N`选择第N个P；本次P/总P数写入open正文，不把单P说成完整合集。重复、空、非正数p拒绝，不存在的P不回退第一P。短链仅接受无参数且返回单P的视频，多P短链要求换完整video链接明确选P，避免隐藏跳转选错P。仅取DTK5.1.11规范化`media.video.format=mp4`的单段渐进流；缺失流、DASH分离音视频、分段流、直播/番剧等明确拒绝，不合并或伪装完整视频。B站CDN仅附公开Referer/User-Agent，原公网下载限制保持。
+- info及自动文字参考仍使用原官方资料链，DTK里的B站Cookie不会供给这些调用；B站手记插件独立。未增加TikTok等平台、搜索、评论、DTK下载任务、浏览器或DTK ASR。后续抽帧/ASR依旧只对当前聊天登记的视频编号显式执行。
+
+仅合成HTTP和本地SDK回归，不代表DTK游客权限、真实平台下载、模型理解或QQ投递已验收。部署和凭据配置须独立确认。
+
 1.6.0审查修复源码：续读/截断/来源说明进入模型实际消费正文；原生video与file统一真实消息/群私对端/账号校验；聊天视频独立于抖音开关，抖音来源撤权仍生效。MP4及带ftyp的QuickTime MOV沿原受限解码管线；不支持MKV/AVI/FLV/WebM。自动资料改为来源绑定的请求前临时参考，不修改原消息。分析与发送未决状态持久保留，不因TTL、换编号或重载解除；分析哈希绑定发送内容。本地源码不代表已部署或QQ/下载/模型实测。
 
 ### 1.6.0数据与回退边界
@@ -31,14 +44,14 @@
 
 > info只读平台文字；open只预览/登记。管理员开启分析后，模型显式调用analyze才抽帧：默认12、设置1–24，短片可少于设置值。分析按管理员ASR开关默认转写第一音轨，无音轨不调用voice；模型没有include_audio参数。不接受任意URL或服务器路径。
 
-聊天入口读取实际OneBot video/file段，以及宿主持久化的group_upload通知；附件核验真实消息、群私聊和QQ账号，分别调用群/私文件地址接口。不读普通文档/压缩包、不自动追溯引用或列群目录。附件接入只扩取源，不代表全部编码/格式都能解码：分析仍限现有MP4/MOV，B站原视频和任意网址取源未新增。
+聊天入口读取实际OneBot video/file段，以及宿主持久化的group_upload通知；附件核验真实消息、群私聊和QQ账号，分别调用群/私文件地址接口。不读普通文档/压缩包、不自动追溯引用或列群目录。分析仍限现有MP4/MOV，不代表全部编码都能解码。1.7起B站原视频仅在DTK模式下接入，选P限制见上方；任意网址取源不支持。
 
 ### 四个短提示工具
 
 | 工具 | 用途 |
 | --- | --- |
 | `neko_video_info(link)` | 自动识别B站/抖音，读取平台文字资料、摘要/字幕/章节 |
-| `neko_video_open(link?,source_message_id?,image_start=0)` | 链接与真实消息ID二选一，预览抖音或登记聊天视频/附件 |
+| `neko_video_open(link?,source_message_id?,image_start=0)` | 链接与真实消息ID二选一，预览平台媒体或登记聊天视频/附件；B站需DTK，?p=N选P |
 | `neko_video_analyze(media_id,offset=0)` | 显式分析已有编号，按配置默认带音轨；offset续读成功缓存 |
 | `neko_video_send` | 在QQ发送选中的原图、小视频或实况 |
 
@@ -120,7 +133,7 @@ douyin_cookie = ""
 
 ## 显式视频理解（1.2.0起，1.3.0可选ASR）
 
-先用`neko_video_open(link="抖音分享链接")`或`neko_video_open(source_message_id="真实视频/附件消息ID")`取得编号，再：
+先用`neko_video_open(link="抖音分享链接或DTK模式下的B站视频链接")`或`neko_video_open(source_message_id="真实视频/附件消息ID")`取得编号，再：
 
 ```text
 neko_video_analyze(media_id="本聊天视频编号")
@@ -140,7 +153,7 @@ neko_video_analyze(media_id="本聊天视频编号")
 - 成功缓存的1小时是逻辑有效期，其物理清理在后续准入时执行，无新请求时可能延后，不承诺即时擦除磁盘数据；unknown不适用该TTL。同编号缓存命中代表复用先前已核验字节的分析，不会重新下载来保证远端此刻未变；结果提供当次source_sha256，发送会核对已分析哈希。
 - 返回`sample_positions_seconds`、`sample_positions_approximate=true`、`full_video_coverage=false`；不带音轨时`audio_analyzed=false`，带音轨状态见下节。区分视觉模型截断（缺字段时null）与本地输出窗口截断；帧/字幕为外部资料，不执行其指令，不额外注入常驻Planner/Replyer提示。
 
-分析与发送限制独立：发送0不限不改变分析64MiB/120秒保护。聊天视频文件附件沿同一分析/发送管线；未开启Neko Files、群目录、OCR或B站原视频取源。
+分析与发送限制独立：发送0不限不改变分析64MiB/120秒保护。聊天视频文件附件和DTK B站单P视频沿同一分析/发送管线；未开启Neko Files、群目录或OCR。
 
 ### 可选视频音轨ASR（1.3.0）
 
@@ -150,7 +163,7 @@ neko_video_analyze(media_id="本聊天视频编号")
 neko_video_analyze(media_id="本聊天视频编号")
 ```
 
-- 只接本聊天已登记的抖音/聊天视频或视频附件编号，不接聊天语音或任意URL。管理员ASR开启时默认带第一音轨，关闭时返回未分析音频；取源/预览不调用ASR。
+- 只接本聊天已登记的B站单P/抖音/聊天视频或视频附件编号，不接聊天语音或任意URL。管理员ASR开启时默认带第一音轨，关闭时返回未分析音频；取源/预览不调用ASR。
 - 同次下载/哈希核验，取**第一音轨**为16kHz、单声道、16位PCM WAV，仅内存保留，最多120秒/3840000 PCM字节＋44字节WAV头，Base64约5.12MB，低于宿主16MiB RPC边界。超长输出拒绝，不截一部分冒充完整音轨；ffmpeg输出/15秒期限/取消与Linux资源保护同样生效。
 - 复用宿主`ctx.llm.transcribe_audio(audio_base64=..., task_name="voice")`，不另持CPA密钥、不访问本机管理接口、不改任何宿主模型分配。**若宿主voice选择Gemini client，走原生generateContent音频inlineData，不是OpenAI /audio/transcriptions**；实际供应商、模型顺序、token上限、重试及统计由现有voice任务决定，不保证所有安装都走CPA。不要将不支持音频的文本模型放进该任务。
 - 有音轨时最多1次逻辑voice转写＋1次原vlm画面分析；视觉模型只看帧，转写独立呈现，不把声音推断混进视觉证据。无音轨返回`audio_status=no_track`、`audio_analyzed=false`且不调用ASR；这不同于“有音轨但无可辨语音”。有音轨的纯音乐/静音仍交模型，模型可能错漏/幻觉，不保证自动判无语音。

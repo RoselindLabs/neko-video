@@ -21,6 +21,14 @@ class ProviderError(ValueError):
     pass
 
 
+def media_headers(source):
+    """Public CDN hints only; never forward the API key or account headers."""
+    headers = {"User-Agent": UA}
+    if source == "bilibili":
+        headers["Referer"] = "https://www.bilibili.com/"
+    return headers
+
+
 async def request_bytes(client, method, url, *, limit=2 * 1024 * 1024, **kwargs):
     # Callers construct these URLs, but keep a central credential boundary.
     parsed = urlsplit(url)

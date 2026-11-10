@@ -15,6 +15,7 @@ import httpx
 
 from .analysis_store import AnalysisStore
 from .media import MediaError
+from .transport import media_headers
 from .video_frames import extract, MAX_FRAME_BYTES, MAX_FRAMES
 from .video_audio import extract_audio
 from .video_spool import VideoSpool
@@ -205,7 +206,10 @@ class VideoAnalyzer:
                     if not asset.urls:
                         raise MediaError("该视频编号没有可读取资源，请重新读取分享资料")
                     async with httpx.AsyncClient(
-                        timeout=15, follow_redirects=False, trust_env=False
+                        timeout=15,
+                        follow_redirects=False,
+                        trust_env=False,
+                        headers=media_headers(asset.source) if asset.source == "bilibili" else {},
                     ) as client:
                         # One source only. No silent provider/URL retry or network fallback.
                         path = await self.spool.download(

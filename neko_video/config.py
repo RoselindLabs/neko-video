@@ -1,5 +1,7 @@
 """SDK configuration only. Domain services do not import this module."""
 
+from typing import Literal
+
 from maibot_sdk import Field, PluginConfigBase
 
 
@@ -41,6 +43,16 @@ class MediaSection(PluginConfigBase):
 
     __ui_label__ = "看图与发送媒体"
     enabled: bool = Field(default=True, description="模型按需看图及选发媒体；不自动向QQ发送")
+    provider: Literal["legacy", "dtk"] = Field(
+        default="legacy",
+        description="显式open来源；legacy仅原抖音接口，dtk支持抖音与B站普通视频。B站?p=N选P，默认P1；失败不跨源回退，info仍原接口",
+        json_schema_extra={"label": "平台媒体解析来源"},
+    )
+    dtk_endpoint: Literal["http://127.0.0.1:25526"] = Field(
+        default="http://127.0.0.1:25526",
+        description="仅固定受信回环API；Key存本插件data_dir/dtk-api-secrets.json的api_key（0600），不是Cookie。需douyin:read及bilibili:read权限",
+        json_schema_extra={"label": "DTK固定API地址与私有凭据说明"},
+    )
     fallback_token: str = Field(default="", description="第三方备选Token，仅留服务器")
     video_max_mib: int = Field(
         default=256,

@@ -255,13 +255,13 @@ class NekoVideoPlugin(MaiBotPlugin):
 
     @Tool(
         "neko_video_open",
-        description="预览抖音媒体或按真实消息ID登记聊天视频/视频附件。",
+        description="打开B站/抖音媒体或按真实消息ID登记聊天视频/附件。",
         timeout_ms=130000,
         parameters=[
             ToolParameterInfo(
                 name="link",
                 param_type=ToolParamType.STRING,
-                description="抖音分享文本、链接或19位ID；与source_message_id二选一，不接B站原视频或任意网址",
+                description="抖音链接/19位ID；DTK模式另接B站BV/av/video链接，?p=N选P，默认P1；多P短链须换完整链接。与source_message_id二选一，不接任意网址",
                 required=False,
             ),
             ToolParameterInfo(
@@ -286,7 +286,7 @@ class NekoVideoPlugin(MaiBotPlugin):
         ):
             return {
                 "success": False,
-                "content": "抖音链接和当前聊天真实消息ID二选一，不能同时填写或留空",
+                "content": "平台视频链接和当前聊天真实消息ID二选一，不能同时填写或留空",
             }
         if any(
             key in kwargs

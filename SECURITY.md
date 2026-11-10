@@ -76,6 +76,24 @@ account cookies. The default primary parser uses plain HTTP: observers on that
 path may read or alter that request/response. Use only public share links and
 disable `media.enabled` if this trust model is unacceptable.
 
+Since 1.7, administrators may instead choose `media.provider=dtk` for explicit
+Douyin and Bilibili media opens. This uses only `http://127.0.0.1:25526`, DTK 5.1.11; it is a
+separate trusted control-plane exception, never a relaxation of media URL rules.
+The plugin reads only its private `dtk-api-secrets.json` API key, not DTK identities
+or cookies. Use a viewer key with only `douyin:read` and `bilibili:read`, directory 0700/file 0600. No pinned identity or management scope is requested. The key travels
+only in the fixed API Authorization header, with redirects and environment proxies
+disabled, never to the separate anonymous media client. Responses are bounded to
+2MiB and errors are fixed strings; raw/meta/diagnostic payloads are not exposed.
+Each call submits once, then polls the same UUID for at most 25 seconds/25 polls.
+Failure, timeout and cancellation never resubmit or switch suppliers. Cancellation
+stops local waiting, not an already-running upstream task; no DELETE is sent since
+DTK coalesces callers. Independent later opens may submit again; server cache and
+retry policies remain DTK's. No downloader/browser/ASR or other-platform source is
+enabled. Existing official metadata clients and their credentials remain separate.
+Bilibili opens explicitly request a part (default 1), reject multipart shortlinks
+and missing/non-progressive MP4 streams. No DASH muxing or segment concatenation
+is attempted. Only public Referer/User-Agent hints accompany Bilibili CDN downloads.
+
 Media downloads validate and pin all resolved public IPs, preserve Host/TLS SNI,
 recheck redirects, reject credentials/private addresses and limit size/decoding.
 These checks do not authenticate a third party's content or guarantee copyright,

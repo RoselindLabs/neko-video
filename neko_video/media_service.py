@@ -10,9 +10,10 @@ import httpx
 from .assets import MediaAssets
 from .media import MediaError, resolve_media, preview_result, download_image, validate_original
 from .storage import read_json
-from .transport import UA
+from .transport import media_headers
 from .video_spool import VideoSpool
 from .delivery_store import DeliveryStore
+from .dtk import resolve_dtk, target
 
 
 class MediaService:
@@ -86,37 +87,65 @@ class MediaService:
         return saved.get("fallback_token", "").strip()
 
     async def read(self, link, start=0, scope=""):
-        if not self.enabled() or not self.settings.parse.enable_douyin:
-            return {"success": False, "content": "抖音媒体读取未启用", "content_items": []}
+        if not self.enabled():
+            return {"success": False, "content": "媒体读取未启用", "content_items": []}
         if isinstance(start, bool) or not isinstance(start, int) or not 0 <= start < 64:
             return {"success": False, "content": "图片起点应为0到63的整数", "content_items": []}
         task = asyncio.current_task()
         self.tasks.add(task)
         try:
-            token = self.token()
+            provider = getattr(self.settings.media, "provider", "legacy")
+            source = target(link)[0] if provider == "dtk" else "douyin"
+            if source == "douyin" and not self.settings.parse.enable_douyin:
+                raise MediaError("抖音媒体读取未启用")
+            if provider == "dtk":
+                saved = read_json(
+                    Path(self.context.paths.data_dir) / "dtk-api-secrets.json", limit=4096
+                )
+                token = saved.get("api_key", "")
+            elif provider == "legacy":
+                token = self.token()
+            else:
+                raise MediaError("媒体解析来源配置无效")
             deadline = asyncio.get_running_loop().time() + 43
             async with asyncio.timeout(45):
                 async with self.slots:
                     async with httpx.AsyncClient(
                         timeout=12, follow_redirects=False, trust_env=False
                     ) as api:
-                        result = await resolve_media(api, link, token)
+                        if provider == "dtk":
+                            result = await resolve_dtk(
+                                api, link, token, self.settings.media.dtk_endpoint
+                            )
+                        else:
+                            result = await resolve_media(api, link, token)
                     if start and start >= len(result["images"]):
                         raise MediaError("图片起点超过范围")
                     async with httpx.AsyncClient(
                         timeout=10,
                         follow_redirects=False,
                         trust_env=False,
-                        headers={"User-Agent": UA},
+                        headers=media_headers(source),
                     ) as media:
                         register = (
-                            (lambda kind, urls, digest: self.assets.add(scope, kind, urls, digest))
+                            (
+                                lambda kind, urls, digest: self.assets.add(
+                                    scope, kind, urls, digest, source=source
+                                )
+                            )
                             if scope
                             else None
                         )
-                        return await preview_result(
+                        output = await preview_result(
                             result, start, media, deadline=deadline, register=register
                         )
+                        if result.get("source_note"):
+                            output["content"] = (
+                                result["source_note"] + "\n" + output.get("content", "")
+                            )
+                        return output
+        except MediaError as exc:
+            return {"success": False, "content": str(exc), "content_items": []}
         except (MediaError, httpx.HTTPError, OSError, ValueError, TimeoutError):
             return {
                 "success": False,
@@ -150,7 +179,7 @@ class MediaService:
                         timeout=10,
                         follow_redirects=False,
                         trust_env=False,
-                        headers={"User-Agent": UA},
+                        headers=media_headers(asset.source),
                     ) as client:
                         for url in asset.urls[:3]:
                             try:

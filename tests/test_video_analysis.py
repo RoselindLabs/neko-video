@@ -103,6 +103,26 @@ class AnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.generate.assert_not_awaited()
         self.transcribe.assert_not_awaited()
 
+    async def test_bilibili_reuses_audio_analysis_scope_and_permanent_unknown(self):
+        self.cfg.parse.enable_douyin = False
+        key = self.assets.add("a", "video", ["https://media.example/bili.mp4"], source="bilibili")
+        self.assertFalse((await self.service.read(key, "other", include_audio=True))["success"])
+        self.fetcher.assert_not_awaited()
+        self.generate.side_effect = TimeoutError
+        self.assertFalse((await self.service.read(key, "a", include_audio=True))["success"])
+        client = self.fetcher.call_args.args[0]
+        self.assertEqual(client.headers["referer"], "https://www.bilibili.com/")
+        self.assertNotIn("authorization", client.headers)
+        self.transcribe.assert_awaited_once()
+        self.generate.assert_awaited_once()
+        replacement = self.assets.add(
+            "a", "video", ["https://media.example/other.mp4"], source="bilibili"
+        )
+        self.generate.side_effect = None
+        self.assertFalse((await self.service.read(replacement, "a", include_audio=True))["success"])
+        self.transcribe.assert_awaited_once()
+        self.generate.assert_awaited_once()
+
     async def test_twelve_frames_fit_new_bounded_payload_without_changing_analysis_route(self):
         self.cfg.analysis.frames = 12
         self.extractor.return_value = (
