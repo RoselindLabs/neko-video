@@ -272,7 +272,7 @@ class NekoVideoPlugin(MaiBotPlugin):
 
     @Tool(
         "neko_video_open",
-        description="看视频/图文：B站抖音链接或QQ视频附件；视频须再analyze。",
+        description="预览图文、获取视频编号；B站/抖音或QQ视频附件，理解视频须再analyze。",
         trusted_context=CONTEXT_CONTRACT,
         timeout_ms=130000,
         parameters=[
