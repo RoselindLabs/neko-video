@@ -50,6 +50,9 @@ def verify(host, temp_dir):
         from neko_video.plugin import NekoVideoPlugin
         from maibot_sdk.components import collect_components
         from src.core.tooling import normalize_tool_description
+        from verify_tool_context import verify_tool_context
+
+        asyncio.run(verify_tool_context(Path(directory)))
 
         # Actual SDK metadata -> actual Host tool schema, not a hand-written schema.
         components = collect_components(NekoVideoPlugin())

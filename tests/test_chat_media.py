@@ -12,6 +12,7 @@ from neko_video.assets import MediaAssets
 from neko_video.chat_media import ChatMediaError, ChatMediaService, chat_video_name
 from neko_video.config import Config
 from neko_video.plugin import NekoVideoPlugin
+from .tool_context import host_context
 
 
 def message(text="[视频] 文件: 4b95.mp4，大小: 1403651", group="123", mid="1251563450"):
@@ -154,12 +155,14 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
             raise PermissionError("capability not declared")
 
         self.plugin.ctx.call_capability = denied
-        result = await self.plugin.chat_video(source_message_id="1251563450", stream_id="stream-a")
+        result = await self.plugin.chat_video(
+            source_message_id="1251563450", _host_context=host_context()
+        )
         self.assertFalse(result["success"])
         self.assertIn("消息读取能力被拒绝", result["content"])
         self.assertNotIn("找不到该消息", result["content"])
 
-    async def test_focus_turn_explicit_session_wins_over_injected_stream(self):
+    async def test_focus_trusted_session_wins_over_model_stream(self):
         self.enable()
         self.plugin.ctx.call_capability = AsyncMock(
             return_value={"success": True, "message": message()}
@@ -167,11 +170,12 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.ctx.api.call.return_value = get_msg_response(
             url="https://cdn.example.com/v.mp4"
         )
-        # Focus turn: model passes the target session; host injected another stream.
+        # Focus target comes only from the Host envelope; ordinary fields are ignored.
         result = await self.plugin.chat_video(
             source_message_id="1251563450",
             stream_id="triggering-private-chat",
-            session_id="stream-a",
+            session_id="foreign-session",
+            _host_context=host_context(),
         )
         self.assertTrue(result["success"])
         args = self.plugin.ctx.call_capability.await_args.kwargs
@@ -180,14 +184,16 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_normal_turn_uses_injected_stream_when_no_explicit_session(self):
         self.enable()
         self.plugin.ctx.call_capability = AsyncMock(return_value={"success": False})
-        result = await self.plugin.chat_video(source_message_id="42", stream_id="stream-b")
+        result = await self.plugin.chat_video(
+            source_message_id="42", _host_context=host_context("stream-b")
+        )
         self.assertFalse(result["success"])
         self.assertEqual(self.plugin.ctx.call_capability.await_args.kwargs["chat_id"], "stream-b")
 
     async def test_missing_message_still_reports_not_found(self):
         self.enable()
         self.plugin.ctx.call_capability = AsyncMock(return_value=None)
-        result = await self.plugin.chat_video(source_message_id="999", stream_id="stream-a")
+        result = await self.plugin.chat_video(source_message_id="999", _host_context=host_context())
         self.assertFalse(result["success"])
         self.assertIn("未查到这条消息", result["content"])
 
@@ -198,7 +204,7 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
             return {"success": False, "error": "synthetic query failure"}
 
         self.plugin.ctx = PluginContext("neko.video", rpc_call=rpc)
-        result = await self.plugin.chat_video(source_message_id="42", session_id="stream-a")
+        result = await self.plugin.chat_video(source_message_id="42", _host_context=host_context())
         self.assertFalse(result["success"])
         self.assertIn("宿主消息查询返回错误", result["content"])
         self.assertNotIn("未查到", result["content"])
@@ -211,7 +217,9 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
                 return {"success": True, "message": value}
 
             self.plugin.ctx = PluginContext("neko.video", rpc_call=rpc)
-            result = await self.plugin.chat_video(source_message_id="42", session_id="stream-a")
+            result = await self.plugin.chat_video(
+                source_message_id="42", _host_context=host_context()
+            )
             self.assertFalse(result["success"])
         self.plugin.chat_media.context.api.call.assert_not_awaited()
 
@@ -224,7 +232,9 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.ctx.api.call.return_value = get_msg_response(
             url="https://cdn.example.com/v.mp4"
         )
-        result = await self.plugin.chat_video(source_message_id="1251563450", stream_id="stream-a")
+        result = await self.plugin.chat_video(
+            source_message_id="1251563450", _host_context=host_context()
+        )
         self.assertTrue(result["success"])
         self.assertIn("media_id", result)
         args = self.plugin.ctx.call_capability.await_args.kwargs
@@ -270,7 +280,9 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
 
         self.plugin.ctx = PluginContext("neko.video", rpc_call=rpc)
         self.plugin.chat_media.context = self.plugin.ctx
-        result = await self.plugin.chat_video(source_message_id="1251563450", session_id="stream-a")
+        result = await self.plugin.chat_video(
+            source_message_id="1251563450", _host_context=host_context()
+        )
         self.assertTrue(result["success"], result)
         self.assertEqual(
             [c["capability"] for c in calls], ["message.get_by_id", "api.call", "api.call"]
@@ -313,7 +325,7 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.chat_media.context = self.plugin.ctx
         self.plugin.analyzer.read = AsyncMock(return_value={"success": True})
         result = await self.plugin.open(
-            source_message_id=current["message_id"], session_id="stream-a"
+            source_message_id=current["message_id"], _host_context=host_context()
         )
         self.assertTrue(result["success"], result)
         self.assertEqual(result["source_kind"], "chat_file")
@@ -323,7 +335,7 @@ class ChatToolTests(unittest.IsolatedAsyncioTestCase):
             ("https://ftn.qq.com/actual-file",),
         )
         self.plugin.analyzer.read.assert_not_called()
-        await self.plugin.analyze(result["media_id"], session_id="stream-a")
+        await self.plugin.analyze(result["media_id"], _host_context=host_context())
         self.plugin.analyzer.read.assert_awaited_once_with(result["media_id"], "stream-a", 0, True)
 
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.2
+
+- Bind scoped tools to the Host opt-in context, retaining valid empty-account normal/Focus calls and QQ identity checks.
+- Clarify link/QQ attachment selection, platform-aware next steps, first-part text coverage and Douyin summary outcomes.
+- Preserve media identities and permanent unknown ledgers; no data migration.
+
 ## 1.6.0
 
 - 续读范围、offset、缓存边界、模型截断及外部来源声明直接进入content；失效/错聊天编号明确本次未提交，已有unknown不引导重做。

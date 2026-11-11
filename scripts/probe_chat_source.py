@@ -129,7 +129,16 @@ async def probe(root, mids):
                     plugin.media = SimpleNamespace(assets=MediaAssets())
                     plugin.chat_media = ChatMediaService(sdk, config, plugin.media.assets)
                     result = await plugin.chat_video(
-                        source_message_id=mid, session_id=row["session_id"]
+                        source_message_id=mid,
+                        _host_context={
+                            "contract": "neko.tools.context.v1",
+                            "session_id": row["session_id"],
+                            "stream_id": row["session_id"],
+                            "platform": "qq",
+                            "group_id": str(row.get("group_id") or ""),
+                            "user_id": str(row.get("user_id") or ""),
+                            "account_id": str(row.get("account_id") or ""),
+                        },
                     )
                     if not result.get("success"):
                         reports.append(

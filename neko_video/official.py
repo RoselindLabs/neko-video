@@ -146,6 +146,7 @@ class OfficialVideoService:
             "content_source": "metadata_only",
             "summary_status": "disabled",
             "read_notices": [],
+            "part_note": "B站文字资料只读取默认首P（P1），不按链接?p选择分P；基本信息可能为整条投稿，不代表指定P或完整合集。",
         }
         if not self.settings.enable_ai_summary:
             return result
@@ -178,7 +179,7 @@ class OfficialVideoService:
                     coverage="仅平台AI摘要，可能存在概括误差；未读取画面或音频",
                 )
                 if int(info.get("videos", 1)) > 1:
-                    result["coverage"] += "；多P视频只取得当前分P资料，不代表全部分P"
+                    result["coverage"] += "；多P视频只取得默认首P资料，不代表指定P或全部分P"
                 return result
             result["summary_status"] = "not_provided"
         except Exception as error:
@@ -247,9 +248,11 @@ class OfficialVideoService:
             summary="",
             chapters=[],
             highlights=[],
+            summary_status="disabled",
         )
         if not self.settings.enable_ai_summary:
             return info
+        info["summary_status"] = "not_obtained"
         official_headers = {
             "User-Agent": UA,
             "Cookie": cookie,
@@ -265,8 +268,12 @@ class OfficialVideoService:
                     headers=official_headers,
                 )
                 info.update(generation_douyin(data))
-            except ProviderError:
-                pass
+                if data.get("status_code") != 0:
+                    info["summary_status"] = "error"
+                elif data.get("business_data") == []:
+                    info["summary_status"] = "not_provided"
+            except Exception:
+                info["summary_status"] = "error"
 
         async def chapters():
             raw, _ = await request_bytes(
@@ -317,6 +324,10 @@ class OfficialVideoService:
                 info.update(results[0])
             if len(results) > 1 and isinstance(results[1], str):
                 info["summary"] = results[1]
+            elif len(results) > 1 and isinstance(results[1], Exception):
+                info["summary_status"] = "error"
+            if info["summary"]:
+                info["summary_status"] = "available"
         finally:
             for job in jobs:
                 if not job.done():

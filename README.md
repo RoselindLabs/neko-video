@@ -1,5 +1,11 @@
 # Neko Video
 
+## 1.7.2：可信会话与调用文案
+
+open/analyze/send显式声明`neko.tools.context.v1`，只使用Host覆盖的`_host_context`中非空且一致的session/stream；普通模型kwargs不作为身份回退。普通与Focus的合法空account可读链接/分析；QQ附件沿真实消息和适配器登录核验，QQ发送从现有会话只读核验账号（`chat.get_all_streams`），不创建会话。缺失/不一致时请管理员核查当前会话，不让模型编造ID。info仍不要求scope。需要带此契约的维护版Host；不支持契约的Host可用info，但三个会话工具安全拒绝。
+
+主提示明确看视频/图文的B站抖音link入口和仅QQ原生视频/视频文件附件的source_message_id入口；TG链接可预览/登记/分析，返回正文不推荐QQ专用send。info的B站文字只读默认首P，忽略?p且明确不代表指定P；open的DTK选P行为保持。抖音总结分别显示未启用、本次未取得、读取失败、成功空结果明确未提供，不输出原始异常。DTK在本地校验拒绝后可以修正参数；已提交/结果未知时核查原请求，不提示重开或换源重提未知任务。媒体编号、分析/发送身份键和永久unknown保持，无库迁移或清账。
+
 ## 1.7.1：四工具调用指引
 
 模型可见提示和返回正文明确：info仅平台文字；open只预览/登记，理解视频须再analyze，按管理员设置转写音轨；send直接发送，无需先分析。视频media_id、实况motion_id与封面图片编号分别说明。图文续页携带原link，分析续读携带原media_id；image_start/offset的Schema默认值均为0。未知分析/投递及DTK等待失败不能靠重新open、换编号或换源重做。四工具、12帧、ASR、DTK来源与现有权限/账本策略保持；Host1.4.3与SDK2.22.1合成消费验证不代表真实媒体或QQ验收。
@@ -218,7 +224,7 @@ python scripts/test_strict.py
 ruff check .
 ruff format --check .
 python scripts/build_release.py
-python scripts/verify_release.py dist/neko-video-1.7.1.zip
+python scripts/verify_release.py dist/neko-video-1.7.2.zip
 ```
 
 日常源码CI用Linux生产Python3.14.4/SDK2.16.0与Windows最低Python3.12/SDK2.12两组；原8组完整兼容保留在v标签、手动full及有源码变化的夜间验证，另保留固定生产组合。保留完整自有测试、关键媒体/回执/持久防重/打包测试组实际发现、真实ffmpeg/ffprobe烟测和lint/format，不用固定测试总数证明正确；零发现、任何skip、失败或导入错误仍失败。每档最终ZIP仍核摘要/白名单、隔离SDK发现4工具并导入全部包内模块，检查来源必须是解压目录，负向缺模块测试仍拒绝回退源码。`verified-*`包含已验ZIP/checksums并保留14天，不自动Release或部署，Actions原固定SHA不变。纯根目录/docs下Markdown只查文档，不获得源码发布资格；源码上传须同main提交及核心测试/包验证/ci-gate/publish-gate成功，受控手动同HEAD核心验证可用于文档HEAD发版，不做空提交或调用真实模型/QQ。

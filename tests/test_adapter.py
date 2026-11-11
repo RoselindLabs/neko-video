@@ -11,6 +11,7 @@ from maibot_sdk.components import collect_components
 
 from neko_video.config import Config
 from neko_video.plugin import NekoVideoPlugin
+from .tool_context import host_context
 
 
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
@@ -55,7 +56,13 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("不分析画面", by_name["neko_video_info"]["description"])
         self.assertIn("抖音", by_name["neko_video_open"]["description"])
-        self.assertIn("真实消息ID", by_name["neko_video_open"]["description"])
+        self.assertIn("QQ视频附件", by_name["neko_video_open"]["description"])
+        self.assertIn("图文", by_name["neko_video_open"]["description"])
+        for name in ("open", "analyze", "send"):
+            self.assertEqual(
+                by_name["neko_video_" + name]["trusted_context"], "neko.tools.context.v1"
+            )
+        self.assertNotIn("trusted_context", by_name["neko_video_info"])
         # Parameter metadata is also model-visible; a short tool label cannot replace it.
         read_params = by_name["neko_video_analyze"]["parameters"]
         if isinstance(read_params, dict):
@@ -174,7 +181,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         old = self.plugin.media
         old.slots = asyncio.Semaphore(0)
         task = asyncio.create_task(
-            self.plugin.read(link="https://v.douyin.com/test/", stream_id="chat")
+            self.plugin.read(link="https://v.douyin.com/test/", _host_context=host_context("chat"))
         )
         await asyncio.sleep(0)
         self.assertIn(task, old.tasks)
@@ -210,15 +217,19 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             {"source_message_id": "1", "image_start": 1},
             {"link": "x", "include_audio": True},
         ):
-            self.assertFalse((await self.plugin.open(**fields))["success"])
+            self.assertFalse(
+                (await self.plugin.open(**fields, _host_context=host_context("a")))["success"]
+            )
         self.plugin.read.assert_not_called()
         self.plugin.chat_video.assert_not_called()
-        await self.plugin.open(link="https://v.douyin.com/test", image_start=4, stream_id="a")
-        self.plugin.read.assert_awaited_once_with(
-            link="https://v.douyin.com/test", image_start=4, stream_id="a"
+        await self.plugin.open(
+            link="https://v.douyin.com/test", image_start=4, _host_context=host_context("a")
         )
-        await self.plugin.open(source_message_id="123", session_id="a")
-        self.plugin.chat_video.assert_awaited_once_with("123", session_id="a")
+        self.plugin.read.assert_awaited_once_with(
+            link="https://v.douyin.com/test", image_start=4, _host_context=host_context("a")
+        )
+        await self.plugin.open(source_message_id="123", _host_context=host_context("a"))
+        self.plugin.chat_video.assert_awaited_once_with("123", _host_context=host_context("a"))
         self.plugin.analyzer.read.assert_not_called()
 
     async def test_analyze_defaults_audio_from_admin_policy_without_model_parameter(self):
@@ -226,9 +237,11 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.plugin.config.analysis.frames, 12)
         self.plugin.config.analysis.frames = 24
         self.plugin.analyzer.read = AsyncMock(return_value={"success": True})
-        await self.plugin.analyze("a" * 32, session_id="scope", stream_id="other")
+        await self.plugin.analyze(
+            "a" * 32, session_id="other", stream_id="other", _host_context=host_context("scope")
+        )
         self.plugin.analyzer.read.assert_awaited_once_with("a" * 32, "scope", 0, True)
         self.plugin.config.asr.enabled = False
-        await self.plugin.analyze("a" * 32, offset=6000, session_id="scope")
+        await self.plugin.analyze("a" * 32, offset=6000, _host_context=host_context("scope"))
         self.plugin.analyzer.read.assert_awaited_with("a" * 32, "scope", 6000, False)
         self.assertFalse((await self.plugin.analyze("a" * 32, include_audio=False))["success"])

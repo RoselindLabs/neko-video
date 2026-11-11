@@ -22,6 +22,8 @@ def render(info, *, injected=False):
         f"作者: {info.get('author', '未知')} / 时长: {duration(info.get('duration'))}",
     ]
     # Put provenance before long external excerpts so a bounded chat block keeps it.
+    if info.get("part_note"):
+        lines.append(info["part_note"])
     for notice in info.get("read_notices", [])[:3]:
         lines.append("读取提示: " + notice)
     if info.get("coverage"):
@@ -36,10 +38,11 @@ def render(info, *, injected=False):
             "temporary": "本次暂未取得（服务超时或临时异常）",
             "blocked": "未取得（登录、权限、风控或限流校验未通过）",
             "error": "读取失败，不能据此判断视频没有摘要",
+            "not_obtained": "本次未取得有效摘要，不能据此判断平台没有摘要",
         }
         lines.append("AI总结: " + states.get(info["summary_status"], "本次未取得"))
     else:
-        lines.append("AI总结: 暂无")
+        lines.append("AI总结: 本次未取得，未确认平台是否提供")
     if info.get("subtitle_excerpt"):
         lines += ["[B站字幕摘录（文本抽样，非AI总结）]", info["subtitle_excerpt"]]
     if info.get("description") and info["description"] != info.get("title"):

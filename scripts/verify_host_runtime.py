@@ -283,7 +283,18 @@ async def verify(host_source, report):
                 plugin_id="neko.video",
                 payload={
                     "component_name": "neko_video_open",
-                    "args": {"source_message_id": "123456", "session_id": "synthetic-group"},
+                    "args": {
+                        "source_message_id": "123456",
+                        "_host_context": {
+                            "contract": "neko.tools.context.v1",
+                            "session_id": "synthetic-group",
+                            "stream_id": "synthetic-group",
+                            "platform": "qq",
+                            "group_id": "123",
+                            "user_id": "",
+                            "account_id": "",
+                        },
+                    },
                 },
             )
             response = await runner._handle_invoke(invocation)

@@ -20,10 +20,27 @@ from .video_analysis import VideoAnalyzer
 from .context import VideoContext
 
 
-def scope_of(kwargs):
-    return str(
-        kwargs.get("session_id") or kwargs.get("stream_id") or kwargs.get("chat_id") or ""
-    ).strip()
+CONTEXT_CONTRACT = "neko.tools.context.v1"
+CONTEXT_ERROR = (
+    "当前会话可信身份缺失或不一致；本次未提交，请管理员核查当前会话与Host契约，不要编造会话ID。"
+)
+
+
+def tool_context(kwargs):
+    context = kwargs.get("_host_context")
+    if not isinstance(context, dict) or context.get("contract") != CONTEXT_CONTRACT:
+        return None
+    for field in ("session_id", "stream_id", "platform", "group_id", "user_id", "account_id"):
+        value = context.get(field)
+        if not isinstance(value, str) or value != value.strip() or len(value) > 256:
+            return None
+    if (
+        not context["session_id"]
+        or context["session_id"] != context["stream_id"]
+        or not context["platform"]
+    ):
+        return None
+    return context
 
 
 def sender_of(explicit, kwargs):
@@ -233,7 +250,7 @@ class NekoVideoPlugin(MaiBotPlugin):
             ToolParameterInfo(
                 name="link",
                 param_type=ToolParamType.STRING,
-                description="B站/抖音分享链接、BV/av号或抖音19位ID",
+                description="B站/抖音分享链接、BV/av号或抖音19位ID；B站文字只读默认首P，不按?p选择分P",
                 required=True,
             )
         ],
@@ -255,7 +272,8 @@ class NekoVideoPlugin(MaiBotPlugin):
 
     @Tool(
         "neko_video_open",
-        description="打开B站/抖音或按真实消息ID登记视频；理解内容须再analyze。",
+        description="看视频/图文：B站抖音链接或QQ视频附件；视频须再analyze。",
+        trusted_context=CONTEXT_CONTRACT,
         timeout_ms=130000,
         parameters=[
             ToolParameterInfo(
@@ -267,7 +285,7 @@ class NekoVideoPlugin(MaiBotPlugin):
             ToolParameterInfo(
                 name="source_message_id",
                 param_type=ToolParamType.STRING,
-                description="当前聊天视频消息或视频文件附件的真实消息ID，不是上下文短编号；与link二选一",
+                description="仅QQ：当前聊天原生视频消息或视频文件附件的真实消息ID，不是上下文短编号；与link二选一，TG请用平台link",
                 required=False,
             ),
             ToolParameterInfo(
@@ -280,6 +298,8 @@ class NekoVideoPlugin(MaiBotPlugin):
         ],
     )
     async def open(self, link="", source_message_id="", image_start=0, **kwargs):
+        if tool_context(kwargs) is None:
+            return {"success": False, "content": CONTEXT_ERROR}
         if (
             not isinstance(link, str)
             or not isinstance(source_message_id, str)
@@ -306,6 +326,7 @@ class NekoVideoPlugin(MaiBotPlugin):
     @Tool(
         "neko_video_analyze",
         description="对本聊天视频编号抽帧理解，按设置转写音轨；可续读成功缓存。",
+        trusted_context=CONTEXT_CONTRACT,
         timeout_ms=130000,
         parameters=[
             ToolParameterInfo(
@@ -326,6 +347,9 @@ class NekoVideoPlugin(MaiBotPlugin):
     async def analyze(self, media_id="", offset=0, **kwargs):
         if not self.enabled():
             return {"success": False, "content": "插件未启用"}
+        context = tool_context(kwargs)
+        if context is None:
+            return {"success": False, "content": CONTEXT_ERROR}
         if any(
             key in kwargs
             for key in (
@@ -340,7 +364,9 @@ class NekoVideoPlugin(MaiBotPlugin):
                 "success": False,
                 "content": "分析只填media_id和可选offset；音轨由插件设置决定，不填其他参数",
             }
-        return await self.analyzer.read(media_id, scope_of(kwargs), offset, self.config.asr.enabled)
+        return await self.analyzer.read(
+            media_id, context["session_id"], offset, self.config.asr.enabled
+        )
 
     async def read(
         self,
@@ -354,6 +380,9 @@ class NekoVideoPlugin(MaiBotPlugin):
     ):
         if not self.enabled():
             return {"success": False, "content": "插件未启用", "content_items": []}
+        context = tool_context(kwargs)
+        if context is None:
+            return {"success": False, "content": CONTEXT_ERROR, "content_items": []}
         if type(analyze_video) is not bool or type(include_audio) is not bool:
             return {
                 "success": False,
@@ -368,7 +397,7 @@ class NekoVideoPlugin(MaiBotPlugin):
                     "content_items": [],
                 }
             return await self.analyzer.read(
-                media_id, scope_of(kwargs), analysis_offset, include_audio
+                media_id, context["session_id"], analysis_offset, include_audio
             )
         if media_id or analysis_offset or include_audio:
             return {
@@ -376,7 +405,9 @@ class NekoVideoPlugin(MaiBotPlugin):
                 "content": "分析媒体编号时需显式analyze_video=true，未自动调用模型",
                 "content_items": [],
             }
-        return await self.media.read(link, image_start, scope_of(kwargs))
+        return await self.media.read(
+            link, image_start, context["session_id"], platform=context["platform"]
+        )
 
     async def _chat_message(self, stream_id, message_id):
         """Read back one message dict of this chat; None if not found.
@@ -435,12 +466,15 @@ class NekoVideoPlugin(MaiBotPlugin):
             return {"success": False, "content": "插件或媒体功能未启用"}
         if not isinstance(source_message_id, str):
             return {"success": False, "content": "缺少消息编号"}
-        # In shared-Focus turns the model passes the target session explicitly;
-        # host-injected stream_id is the triggering chat and would mismatch.
-        explicit = str(kwargs.get("session_id") or "").strip()
-        scope = explicit or scope_of(kwargs)
-        if not scope:
-            return {"success": False, "content": "缺少当前聊天或消息编号"}
+        context = tool_context(kwargs)
+        if context is None:
+            return {"success": False, "content": CONTEXT_ERROR}
+        if context["platform"] != "qq":
+            return {
+                "success": False,
+                "content": "消息附件取源仅支持QQ；当前平台可用B站/抖音link读取。",
+            }
+        scope = context["session_id"]
         try:
             message = await self._chat_message(scope, source_message_id)
         except RuntimeError as exc:
@@ -451,6 +485,7 @@ class NekoVideoPlugin(MaiBotPlugin):
                 "content": "当前聊天未查到这条消息，请核对视频消息ID和目标聊天；不要反复重发视频。",
             }
         try:
+            self._check_qq_message(context, message)
             record = await self.chat_media.register(message, scope, message["message_id"])
         except ChatMediaError as exc:
             return {"success": False, "content": str(exc)}
@@ -470,6 +505,7 @@ class NekoVideoPlugin(MaiBotPlugin):
     @Tool(
         "neko_video_send",
         description="向QQ发送本聊天编号对应的原图、视频或实况；仅需发送时调用。",
+        trusted_context=CONTEXT_CONTRACT,
         platforms=["qq"],
         timeout_ms=190000,
         parameters=[
@@ -484,7 +520,64 @@ class NekoVideoPlugin(MaiBotPlugin):
     async def send(self, media_id="", **kwargs):
         if not self.enabled():
             return {"success": False, "content": "插件未启用"}
-        return await self.media.send(media_id, scope_of(kwargs))
+        context = tool_context(kwargs)
+        if context is None:
+            return {"success": False, "content": CONTEXT_ERROR}
+        if context["platform"] != "qq":
+            return {"success": False, "content": "原媒体发送仅支持QQ，当前平台不可调用send。"}
+        try:
+            async with asyncio.timeout(3):
+                rows = await self.ctx.chat.get_all_streams(platform="qq")
+                if not isinstance(rows, list) or len(rows) > 512:
+                    raise ValueError
+                matches = [
+                    r
+                    for r in rows
+                    if isinstance(r, dict) and r.get("session_id") == context["session_id"]
+                ]
+                if len(matches) != 1:
+                    raise ValueError
+                row = matches[0]
+                if (
+                    row.get("platform") != "qq"
+                    or row.get("stream_id", row["session_id"]) != row["session_id"]
+                ):
+                    raise ValueError
+                group = row.get("group_id") or ""
+                if row.get("chat_type") != ("group" if group else "private") or row.get(
+                    "is_group_session"
+                ) is not bool(group):
+                    raise ValueError
+                message = {
+                    "account_id": row.get("account_id"),
+                    "message_info": {
+                        "group_info": {"group_id": group},
+                        "user_info": {"user_id": row.get("user_id")},
+                    },
+                }
+                self._check_qq_message(context, message)
+                await self.chat_media._account(message)
+        except Exception:
+            return {
+                "success": False,
+                "content": "当前QQ会话或登录账号未核实；本次未发送，请管理员核查当前会话，不要编造ID。",
+            }
+        return await self.media.send(media_id, context["session_id"])
+
+    @staticmethod
+    def _check_qq_message(context, message):
+        info = message.get("message_info") or {}
+        group = str((info.get("group_info") or {}).get("group_id") or "")
+        user = ChatMediaService._peer(message)
+        if (
+            group != context["group_id"]
+            or (not group and user != context["user_id"])
+            or (
+                context["account_id"]
+                and str(message.get("account_id") or "") != context["account_id"]
+            )
+        ):
+            raise ChatMediaError("当前QQ会话与消息身份不一致；请管理员核查当前会话，不要编造ID")
 
     def admin(self, user_id, kwargs):
         sender = sender_of(user_id, kwargs)

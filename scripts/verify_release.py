@@ -30,6 +30,10 @@ assert {item['name'] for item in tools} == {'neko_video_info', 'neko_video_open'
 analysis = next(item['metadata']['parameters'] for item in tools if item['name'] == 'neko_video_analyze')
 assert {p['name'] for p in analysis} == {'media_id', 'offset'}
 assert all(item['name'].startswith('neko_video_') for item in tools)
+for item in tools:
+    if item['name'] != 'neko_video_info':
+        assert item['metadata']['trusted_context'] == 'neko.tools.context.v1'
+assert next(item for item in tools if item['name'] == 'neko_video_send')['metadata']['platforms'] == ['qq']
 # Also exercise standalone discovery and eagerly import every packaged module.
 standalone = importlib.import_module('plugin')
 assert len(collect_components(standalone.create_plugin())) == len(collect_components(plugin))

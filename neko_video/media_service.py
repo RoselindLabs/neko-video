@@ -86,7 +86,7 @@ class MediaService:
             raise MediaError("媒体凭据格式错误")
         return saved.get("fallback_token", "").strip()
 
-    async def read(self, link, start=0, scope=""):
+    async def read(self, link, start=0, scope="", *, platform="qq"):
         if not self.enabled():
             return {"success": False, "content": "媒体读取未启用", "content_items": []}
         if isinstance(start, bool) or not isinstance(start, int) or not 0 <= start < 64:
@@ -137,7 +137,12 @@ class MediaService:
                             else None
                         )
                         output = await preview_result(
-                            result, start, media, deadline=deadline, register=register
+                            result,
+                            start,
+                            media,
+                            deadline=deadline,
+                            register=register,
+                            can_send=platform == "qq",
                         )
                         if result.get("source_note"):
                             output["content"] = (

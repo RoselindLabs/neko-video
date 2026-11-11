@@ -127,7 +127,7 @@ class PureServices(unittest.TestCase):
 
     def test_presentation_is_bounded_and_does_not_invent_summary(self):
         info = {"platform": "douyin", "title": "title", "summary": "", "description": "description"}
-        self.assertIn("暂无", render(info))
+        self.assertIn("本次未取得", render(info))
         info["summary"] = "x" * 20000
         self.assertLessEqual(len(render(info, injected=True)), 6000)
         self.assertLessEqual(len(render(info)), 12000)
@@ -328,6 +328,7 @@ class AsyncServices(unittest.IsolatedAsyncioTestCase):
             )
             result = await service.summary("7123456789012345678", "douyin")
             self.assertEqual(result["summary"], "fixture summary")
+            self.assertEqual(result["summary_status"], "available")
             self.assertEqual(result["chapters"][0]["desc"], "intro")
             self.assertIs(await service.summary("7123456789012345678", "douyin"), result)
 

@@ -86,6 +86,7 @@ class DTKTests(unittest.IsolatedAsyncioTestCase):
             httpx.Response(302, headers={"location": "https://evil.example/"}),
             httpx.Response(200, content=b"not-json"),
             envelope({"task_id": "../../admin", "state": "queued"}, 202),
+            envelope({"task_id": None, "state": "queued"}, 202),
             envelope({**content(), "content_id": "7123456789012345679"}),
             envelope({**content(), "platform": "bilibili"}),
             envelope({**content(), "kind": "live"}),
@@ -101,6 +102,9 @@ class DTKTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(reply=reply.status_code), self.assertRaises(MediaError) as error:
                 await self.run_resolver(handler)
             self.assertNotIn(KEY, str(error.exception))
+            if reply.status_code == 202:
+                self.assertIn("核查原请求", str(error.exception))
+                self.assertIn("重新open或换源", str(error.exception))
             self.assertEqual(len(calls), 1)
 
     async def test_terminal_poll_and_wrong_task_fail_without_new_post(self):
@@ -119,9 +123,13 @@ class DTKTests(unittest.IsolatedAsyncioTestCase):
                     else result
                 )
 
-            with patch("neko_video.dtk.POLL_SECONDS", 0), self.assertRaises(MediaError):
+            with patch("neko_video.dtk.POLL_SECONDS", 0), self.assertRaises(MediaError) as error:
                 await self.run_resolver(handler)
             self.assertEqual(calls, ["POST", "GET"])
+            if result.status_code == 200 and result.json()["data"].get("task_id") == "other":
+                self.assertIn("已提交任务的响应不匹配", str(error.exception))
+                self.assertIn("核查原任务", str(error.exception))
+                self.assertIn("重新open或换源", str(error.exception))
 
     async def test_poll_limit_deadline_and_cancellation(self):
         calls = []

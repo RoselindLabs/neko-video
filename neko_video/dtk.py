@@ -172,7 +172,7 @@ async def request(client, method, path, key, **kwargs):
             return response.status_code, payload["data"]
     except (httpx.HTTPError, ValueError, UnicodeError, RecursionError):
         raise MediaError(
-            "DTK请求失败，未重复提交；不要反复open或换源，需管理员核查服务与访问权限"
+            "DTK请求结果未确认，未重复提交；不能靠重新open或换源重提未知任务，请管理员核查原请求。"
         ) from None
 
 
@@ -211,7 +211,9 @@ async def resolve_dtk(client, text, key, endpoint=ENDPOINT):
                 return media_result(data, vid, platform, part, short)
             task_id = data.get("task_id")
             if not isinstance(task_id, str) or str(UUID(task_id)) != task_id:
-                raise MediaError("DTK任务编号无效")
+                raise MediaError(
+                    "DTK请求已提交，但返回的任务编号无效，远端执行未确认；请管理员核查原请求，不要重新open或换源重提未知任务。"
+                )
             if data.get("state") not in ("queued", "running", "done"):
                 raise MediaError("DTK任务未成功")
             # Always poll this exact UUID; never resubmit on timeout/failed/404.
@@ -219,17 +221,21 @@ async def resolve_dtk(client, text, key, endpoint=ENDPOINT):
                 await asyncio.sleep(POLL_SECONDS)
                 status, task = await request(client, "GET", "/api/v1/tasks/" + task_id, key)
                 if status != 200 or task.get("task_id") != task_id:
-                    raise MediaError("DTK任务响应不匹配")
+                    raise MediaError(
+                        "DTK已提交任务的响应不匹配，远端结果未确认；请管理员核查原任务，不要重新open或换源重提未知任务。"
+                    )
                 if task.get("state") == "done":
                     return media_result(task.get("data"), vid, platform, part, short)
                 if task.get("state") not in ("queued", "running"):
-                    raise MediaError("DTK任务未成功，未重复提交；不要反复open或换源，需管理员核查")
+                    raise MediaError(
+                        "DTK已提交任务返回未成功，未重复提交；请管理员核查原任务，不换源重提。"
+                    )
             raise MediaError("DTK任务等待到期，本次已结束；远端可能仍在处理，不要反复open或换源")
     except MediaError:
         raise
     except (TimeoutError, ValueError):
         raise MediaError(
-            "DTK解析失败或等待到期，本次已结束；远端可能仍在处理，不要反复open或换源，需管理员核查"
+            "DTK请求结果无效或等待到期，本地等待已结束；远端执行未确认，不能靠重新open或换源重提未知任务，请管理员核查原请求。"
         ) from None
     # Cancellation propagates. Do not DELETE: DTK may coalesce other callers
     # onto this task; local cancellation does not imply upstream cancellation.
