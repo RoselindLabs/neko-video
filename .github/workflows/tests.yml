@@ -71,7 +71,13 @@ jobs:
         timeout-minutes: 5
         run: |
           if ! command -v ffmpeg || ! command -v ffprobe; then
-            # Keep the runner's regional mirror list; do not pin a public mirror.
+            # Azure/archive endpoints can stall on hosted runners. Keep Ubuntu's
+            # signed repositories, using the reachable HTTPS kernel.org mirror.
+            for source in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt; do
+              if [ -f "$source" ]; then
+                sudo sed -Ei 's#https?://(azure\.archive\.ubuntu\.com|archive\.ubuntu\.com|security\.ubuntu\.com)/ubuntu/?#https://mirrors.edge.kernel.org/ubuntu/#g' "$source"
+              fi
+            done
             timeout 90s sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update
             timeout 150s sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install --yes --no-install-recommends ffmpeg
           fi
