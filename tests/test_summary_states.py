@@ -53,5 +53,5 @@ class SummaryStates(unittest.IsolatedAsyncioTestCase):
             )
             result = await service.summary("https://www.bilibili.com/video/BV17x411w7KC?p=2")
         self.assertIn("默认首P（P1）", render(result))
-        self.assertIn("不按链接?p", render(result))
+        self.assertIn("忽略?p", render(result))
         self.assertNotIn("当前分P", render(result))

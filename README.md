@@ -2,6 +2,10 @@
 
 暂缓方案：[Gemini原生视频理解计划](PLAN_GEMINI_VIDEO.md)（仅留档，未实施；当前仍使用抽帧＋ASR）。
 
+## 1.7.3：精简四工具文案
+
+info保留平台文字来源、首P和摘要/字幕范围；open按内容展示封面、视频编号及多P范围，省去重复教程。analyze保留实际帧数、音频状态、采样与转写局限，仅长结果显示缓存分页；send区分平台确认与收件人显示。未知请求仍禁止重试、重开或换编号，不因编号过期解除。仅调整说明和条件展示，分析/发送流程与保护不变。
+
 ## 1.7.2：可信会话与调用文案
 
 open/analyze/send显式声明`neko.tools.context.v1`，只使用Host覆盖的`_host_context`中非空且一致的session/stream；普通模型kwargs不作为身份回退。普通与Focus的合法空account可读链接/分析；QQ附件沿真实消息和适配器登录核验，QQ发送从现有会话只读核验账号（`chat.get_all_streams`），不创建会话。缺失/不一致时请管理员核查当前会话，不让模型编造ID。info仍不要求scope。需要带此契约的维护版Host；不支持契约的Host可用info，但三个会话工具安全拒绝。
@@ -226,7 +230,7 @@ python scripts/test_strict.py
 ruff check .
 ruff format --check .
 python scripts/build_release.py
-python scripts/verify_release.py dist/neko-video-1.7.2.zip
+python scripts/verify_release.py dist/neko-video-1.7.3.zip
 ```
 
 日常源码CI用Linux生产Python3.14.4/SDK2.16.0与Windows最低Python3.12/SDK2.12两组；原8组完整兼容保留在v标签、手动full及有源码变化的夜间验证，另保留固定生产组合。保留完整自有测试、关键媒体/回执/持久防重/打包测试组实际发现、真实ffmpeg/ffprobe烟测和lint/format，不用固定测试总数证明正确；零发现、任何skip、失败或导入错误仍失败。每档最终ZIP仍核摘要/白名单、隔离SDK发现4工具并导入全部包内模块，检查来源必须是解压目录，负向缺模块测试仍拒绝回退源码。`verified-*`包含已验ZIP/checksums并保留14天，不自动Release或部署，Actions原固定SHA不变。纯根目录/docs下Markdown只查文档，不获得源码发布资格；源码上传须同main提交及核心测试/包验证/ci-gate/publish-gate成功，受控手动同HEAD核心验证可用于文档HEAD发版，不做空提交或调用真实模型/QQ。

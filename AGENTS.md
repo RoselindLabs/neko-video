@@ -10,6 +10,7 @@
 - Retain DNS pinning, redirect/byte/pixel limits, scoped expiring media IDs,
   source hash verification and unknown-delivery no-retry behavior.
 - Each tool description <=45 characters; total for all four <=190 characters.
+- 正常工具结果只保本次事实及必要下一步；参数说明讲用法，分页/多P/失败按条件提示，避免重复免责声明和完整教程，保留来源/覆盖/unknown语义。
 - Use the real PluginContext in capability-contract tests and mock only the raw
   RPC boundary: message.get_by_id returns a normalized message dict, not the Host
   envelope. SDK/Runner and metadata-only probes do not prove paid model quality.

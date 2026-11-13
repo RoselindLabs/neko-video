@@ -118,7 +118,8 @@ def media_result(data, expected_id="", platform="douyin", part=1, short=False):
             or video.get("format") != "mp4"
         ):
             raise MediaError("B站未返回单段渐进MP4；不支持DASH分离音视频、分段流或缺失播放流")
-        part_note = f"B站本次仅登记P{part}（共{len(parts)}P）；无p参数默认P1，不代表完整合集。"
+        if len(parts) > 1:
+            part_note = f"B站本次P{part} / 共{len(parts)}P。"
     images = [
         {"urls": object_urls(item), "video_urls": object_urls(item.get("video"))}
         if isinstance(item, dict)

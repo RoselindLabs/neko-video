@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.3
+
+- 精简info/open/analyze/send工具及参数说明、成功/失败正文；按图文、封面、分P和缓存分页显示必要提示。
+- 保留平台资料覆盖、采样/转写局限、外部资料信任边界及永久unknown禁止重做；发送确认不冒称收件人已显示。
+- 仅文案与条件展示调整，不改模型、权限、预算、缓存或防重逻辑；Gemini原生计划继续暂缓。
+
 ## 1.7.2
 
 - Bind scoped tools to the Host opt-in context, retaining valid empty-account normal/Focus calls and QQ identity checks.

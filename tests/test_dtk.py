@@ -344,6 +344,6 @@ class BilibiliDTKTests(unittest.IsolatedAsyncioTestCase):
             ):
                 result = await service.read("BV17x411w7KC", scope="bili-chat")
                 self.assertTrue(result["success"])
-                self.assertIn("P1", result["content"])
+                self.assertEqual(result["content"], "B站本次P1 / 共2P。\npreview")
                 self.assertEqual(service.assets.peek("bili-chat", result["key"]).source, "bilibili")
             await service.close()

@@ -550,7 +550,7 @@ class AnalysisTests(unittest.IsolatedAsyncioTestCase):
         tail = await self.service.read(self.key, "a", first["next_analysis_offset"])
         self.assertTrue(tail["cache_hit"])
         self.assertIn("tail", tail["content"])
-        self.assertIn("已到缓存正文末尾", tail["content"])
+        self.assertIn("缓存正文已读完", tail["content"])
         self.assertIsNone(tail["next_analysis_offset"])
         self.assertNotIn("_analysis_text", first)
         self.generate.assert_awaited_once()

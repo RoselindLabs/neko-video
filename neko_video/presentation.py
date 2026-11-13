@@ -18,7 +18,7 @@ def render(info, *, injected=False):
     platform = "B站" if info["platform"] == "bilibili" else "抖音"
     lines = [
         f"[{platform}视频信息] {info.get('title', '')}",
-        "仅平台文字资料，未分析画面或音轨，不等于看过视频。需要理解视频时先open，再对视频编号analyze。",
+        "仅平台文字资料，未分析画面或音轨。",
         f"作者: {info.get('author', '未知')} / 时长: {duration(info.get('duration'))}",
     ]
     # Put provenance before long external excerpts so a bounded chat block keeps it.

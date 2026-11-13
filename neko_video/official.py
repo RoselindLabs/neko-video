@@ -146,7 +146,7 @@ class OfficialVideoService:
             "content_source": "metadata_only",
             "summary_status": "disabled",
             "read_notices": [],
-            "part_note": "B站文字资料只读取默认首P（P1），不按链接?p选择分P；基本信息可能为整条投稿，不代表指定P或完整合集。",
+            "part_note": "文字资料仅默认首P（P1），忽略?p；基本信息可能属于整条投稿，不代表指定P或完整合集。",
         }
         if not self.settings.enable_ai_summary:
             return result
@@ -176,10 +176,8 @@ class OfficialVideoService:
                     summary=text.strip()[:6000],
                     summary_status="available",
                     content_source="platform_ai",
-                    coverage="仅平台AI摘要，可能存在概括误差；未读取画面或音频",
+                    coverage="平台AI摘要，可能存在概括误差",
                 )
-                if int(info.get("videos", 1)) > 1:
-                    result["coverage"] += "；多P视频只取得默认首P资料，不代表指定P或全部分P"
                 return result
             result["summary_status"] = "not_provided"
         except Exception as error:
@@ -215,7 +213,7 @@ class OfficialVideoService:
             result.update(
                 subtitle_excerpt=excerpt,
                 content_source="subtitle",
-                coverage="字幕文本抽样，含近似时间范围；不是AI总结，未读取画面或音频",
+                coverage="字幕文本抽样，含近似时间范围；不是AI总结",
             )
         except Exception as error:
             _, notice = read_failure(error, "B站字幕读取")

@@ -67,7 +67,7 @@ class BilibiliTextTests(unittest.IsolatedAsyncioTestCase):
         displayed = render(result)
         self.assertIn("服务调用超时（code=-504）", displayed)
         self.assertIn("字幕摘录", displayed)
-        self.assertIn("未读取画面或音频", displayed)
+        self.assertIn("未分析画面或音轨", displayed)
         self.assertNotIn("[平台AI总结]", displayed)
         self.assertNotIn("SECRET", displayed)
         self.assertIs(await self.service.summary(BV, "bilibili"), result)
@@ -211,7 +211,7 @@ class BilibiliTextTests(unittest.IsolatedAsyncioTestCase):
         before = copy.deepcopy(message)
         hooked = await plugin.inject(message=message)
         self.assertEqual(hooked, {"action": "continue"})
-        self.assertIn("未读取画面或音频", plugin.references.records[("s", "42")][1])
+        self.assertIn("未分析画面或音轨", plugin.references.records[("s", "42")][1])
         self.assertEqual(message, before)
 
     def test_long_content_retains_warning_and_provenance_in_bounded_block(self):
