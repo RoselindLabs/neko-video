@@ -1,5 +1,7 @@
 # Neko Video
 
+暂缓方案：[Gemini原生视频理解计划](PLAN_GEMINI_VIDEO.md)（仅留档，未实施；当前仍使用抽帧＋ASR）。
+
 ## 1.7.2：可信会话与调用文案
 
 open/analyze/send显式声明`neko.tools.context.v1`，只使用Host覆盖的`_host_context`中非空且一致的session/stream；普通模型kwargs不作为身份回退。普通与Focus的合法空account可读链接/分析；QQ附件沿真实消息和适配器登录核验，QQ发送从现有会话只读核验账号（`chat.get_all_streams`），不创建会话。缺失/不一致时请管理员核查当前会话，不让模型编造ID。info仍不要求scope。需要带此契约的维护版Host；不支持契约的Host可用info，但三个会话工具安全拒绝。
